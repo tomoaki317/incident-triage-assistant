@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "assessment_status": "out_of_scope",
+  "assessment_reason": "ネットワーク機器の侵害調査は初版の対象外",
+  "summary": "ネットワーク機器の侵害調査を求める申告がある",
+  "facts": [
+    {
+      "id": "F1",
+      "statement": "ネットワーク機器の侵害調査を求める申告がある",
+      "source_type": "user_report",
+      "source_ref": "symptom"
+    }
+  ],
+  "hypotheses": [],
+  "checks": [],
+  "missing_information": [],
+  "escalation": {
+    "summary": "ネットワーク機器の侵害調査を求める申告がある",
+    "occurred_at": "不明",
+    "environment": "不明",
+    "impact": "不明",
+    "ongoing_status": "不明",
+    "destination": "不明",
+    "related_fact_ids": [
+      "F1"
+    ],
+    "hypothesis_ids": [],
+    "checks_performed": [],
+    "open_questions": [
+      "既存のセキュリティ対応窓口への引き継ぎ先"
+    ]
+  },
+  "references": []
+}

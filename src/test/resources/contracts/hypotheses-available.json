@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "assessment_status": "hypotheses_available",
+  "assessment_reason": "ログに重複キーによる制約違反が記載されている",
+  "summary": "商品登録時のHTTP 500との申告と、重複キーのログがある。両者の関連は未確認",
+  "facts": [
+    {
+      "id": "F1",
+      "statement": "商品登録時にHTTP 500が発生したとの申告がある",
+      "source_type": "user_report",
+      "source_ref": "symptom"
+    },
+    {
+      "id": "F2",
+      "statement": "重複キーのエラーメッセージが記載されている",
+      "source_type": "log",
+      "source_ref": "log:L3"
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "H1",
+      "description": "登録処理で一意制約に抵触した可能性",
+      "evidence_fact_ids": [
+        "F2"
+      ],
+      "unverified_assumptions": [
+        "ログと申告された事象が同一リクエストに対応するかは未確認"
+      ],
+      "check_ids": [
+        "C1"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "id": "C1",
+      "action": "発生時刻・リクエストIDと対象の制約定義を確認する",
+      "purpose": "ログと申告の対応および制約違反の対象を確認する",
+      "priority": "high"
+    }
+  ],
+  "missing_information": [
+    {
+      "item": "発生日時とタイムゾーン、該当ログ、影響範囲",
+      "reason": "調査対象を特定し、引き継ぎ情報を整理するため"
+    }
+  ],
+  "escalation": {
+    "summary": "商品登録時のHTTP 500との申告と、重複キーのログがある。両者の関連は未確認",
+    "occurred_at": "不明",
+    "environment": "不明",
+    "impact": "不明",
+    "ongoing_status": "不明",
+    "destination": "不明",
+    "related_fact_ids": [
+      "F1",
+      "F2"
+    ],
+    "hypothesis_ids": [
+      "H1"
+    ],
+    "checks_performed": [],
+    "open_questions": [
+      "発生日時とタイムゾーン",
+      "該当ログ",
+      "影響範囲"
+    ]
+  },
+  "references": []
+}

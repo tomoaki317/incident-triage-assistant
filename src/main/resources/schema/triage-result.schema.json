@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "assessment_status": {
+      "enum": [
+        "hypotheses_available",
+        "insufficient_information",
+        "out_of_scope"
+      ]
+    },
+    "assessment_reason": {
+      "$ref": "#/$defs/text"
+    },
+    "summary": {
+      "$ref": "#/$defs/text"
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/fact"
+      },
+      "minItems": 0,
+      "maxItems": 20
+    },
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hypothesis"
+      },
+      "minItems": 0,
+      "maxItems": 3
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/check"
+      },
+      "minItems": 0,
+      "maxItems": 5
+    },
+    "missing_information": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/missingInformation"
+      },
+      "minItems": 0,
+      "maxItems": 10
+    },
+    "escalation": {
+      "$ref": "#/$defs/escalation"
+    },
+    "references": {
+      "type": "array",
+      "maxItems": 0
+    }
+  },
+  "required": [
+    "schema_version",
+    "assessment_status",
+    "assessment_reason",
+    "summary",
+    "facts",
+    "hypotheses",
+    "checks",
+    "missing_information",
+    "escalation",
+    "references"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "assessment_status": {
+            "const": "hypotheses_available"
+          }
+        },
+        "required": [
+          "assessment_status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "hypotheses": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "hypotheses": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "reference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "factId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^F[1-9][0-9]*$"
+    },
+    "hypothesisId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^H[1-9][0-9]*$"
+    },
+    "checkId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^C[1-9][0-9]*$"
+    },
+    "fact": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/factId"
+        },
+        "statement": {
+          "$ref": "#/$defs/text"
+        },
+        "source_type": {
+          "enum": [
+            "user_report",
+            "log"
+          ]
+        },
+        "source_ref": {
+          "$ref": "#/$defs/reference"
+        }
+      },
+      "required": [
+        "id",
+        "statement",
+        "source_type",
+        "source_ref"
+      ],
+      "additionalProperties": false
+    },
+    "hypothesis": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/hypothesisId"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        },
+        "evidence_fact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "unverified_assumptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "maxItems": 5
+        },
+        "check_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 1,
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "evidence_fact_ids",
+        "unverified_assumptions",
+        "check_ids"
+      ],
+      "additionalProperties": false
+    },
+    "check": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/checkId"
+        },
+        "action": {
+          "$ref": "#/$defs/text"
+        },
+        "purpose": {
+          "$ref": "#/$defs/text"
+        },
+        "priority": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "action",
+        "purpose",
+        "priority"
+      ],
+      "additionalProperties": false
+    },
+    "missingInformation": {
+      "type": "object",
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/text"
+        },
+        "reason": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "required": [
+        "item",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "escalation": {
+      "type": "object",
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/text"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/text"
+        },
+        "environment": {
+          "$ref": "#/$defs/text"
+        },
+        "impact": {
+          "$ref": "#/$defs/text"
+        },
+        "ongoing_status": {
+          "$ref": "#/$defs/text"
+        },
+        "destination": {
+          "$ref": "#/$defs/text"
+        },
+        "related_fact_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        },
+        "hypothesis_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference"
+          },
+          "minItems": 0,
+          "maxItems": 3
+        },
+        "checks_performed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "maxItems": 10
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/text"
+          },
+          "minItems": 0,
+          "maxItems": 10
+        }
+      },
+      "required": [
+        "summary",
+        "occurred_at",
+        "environment",
+        "impact",
+        "ongoing_status",
+        "destination",
+        "related_fact_ids",
+        "hypothesis_ids",
+        "checks_performed",
+        "open_questions"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "assessment_status": "insufficient_information",
+  "assessment_reason": "原因を絞るためのログが提供されていない",
+  "summary": "商品登録時にHTTP 500が発生したとの申告がある",
+  "facts": [
+    {
+      "id": "F1",
+      "statement": "商品登録時にHTTP 500が発生したとの申告がある",
+      "source_type": "user_report",
+      "source_ref": "symptom"
+    }
+  ],
+  "hypotheses": [],
+  "checks": [
+    {
+      "id": "C1",
+      "action": "発生時刻付近のアプリケーションログを確認する",
+      "purpose": "対応する例外とエラーメッセージを確認する",
+      "priority": "high"
+    }
+  ],
+  "missing_information": [
+    {
+      "item": "発生日時とタイムゾーン、該当ログ、影響範囲",
+      "reason": "調査対象を特定し、引き継ぎ情報を整理するため"
+    }
+  ],
+  "escalation": {
+    "summary": "商品登録時にHTTP 500。原因は未判定",
+    "occurred_at": "不明",
+    "environment": "不明",
+    "impact": "不明",
+    "ongoing_status": "不明",
+    "destination": "不明",
+    "related_fact_ids": [
+      "F1"
+    ],
+    "hypothesis_ids": [],
+    "checks_performed": [],
+    "open_questions": [
+      "発生日時とタイムゾーン",
+      "該当ログ",
+      "影響範囲"
+    ]
+  },
+  "references": []
+}
