@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>送信内容の確認 | Incident Triage Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header><span class="badge">LOCAL PoC · AI未接続</span><h1>障害の送信内容を確認</h1>
+    <p>障害事象とログを入力し、機密情報をマスキングした送信予定内容を確認します。</p></header>
+  <main>
+    <aside class="notice">合成データを使用してください。実顧客のログ・個人情報・実際の認証情報は入力しないでください。
+      AIへの送信・解析は行いません。最終判断は担当者が行い、緊急時は既存の障害対応手順を優先してください。</aside>
+    <div class="columns">
+      <section class="card" aria-labelledby="input-title">
+        <h2 id="input-title">1. 障害内容を入力</h2>
+        <form id="preview-form" autocomplete="off" novalidate>
+          <fieldset id="inputs">
+            <label for="symptom">障害事象 <span class="required">必須</span></label>
+            <p id="symptom-help" class="hint">例：商品登録時にHTTP 500が発生する</p>
+            <textarea id="symptom" rows="5" required aria-describedby="symptom-help symptom-count" spellcheck="false"></textarea>
+            <p id="symptom-count" class="count">0 / 2,000文字</p>
+            <label for="log">ログ <span class="hint">任意</span></label>
+            <textarea id="log" rows="12" aria-describedby="log-count" spellcheck="false"></textarea>
+            <p id="log-count" class="count">0 / 20,000文字</p>
+            <label for="log-status">ログ取得状況 <span class="hint">ログがない場合は必須</span></label>
+            <select id="log-status"><option value="">選択してください</option><option>未取得</option><option>取得できない</option><option>該当ログなし</option></select>
+          </fieldset>
+          <div class="actions"><button id="submit" type="submit">送信内容を確認</button><button id="clear" type="button" class="secondary">入力をクリア</button></div>
+          <p id="status" role="status" aria-live="polite"></p>
+          <p id="error" class="error" role="alert" hidden></p>
+        </form>
+      </section>
+      <section class="card" aria-labelledby="preview-title" aria-busy="false" id="preview-panel">
+        <h2 id="preview-title">2. マスキング後の内容</h2>
+        <p class="hint">自動検出は完全ではありません。氏名・住所・電話番号・顧客ID・社内ホスト名なども確認・除去してください。</p>
+        <p id="empty">入力後に「送信内容を確認」を押してください。</p>
+        <div id="preview" hidden>
+          <p class="notice">[MASKED_数字] は機密情報の置換箇所です。入力を編集すると、このプレビューは消去されます。</p>
+          <dl id="metadata"></dl>
+          <h3>障害事象</h3><pre id="masked-symptom"></pre>
+          <h3>ログ</h3><div id="masked-log" class="log-lines"></div>
+          <h3>補足情報</h3><dl id="context"></dl>
+          <h3>注意事項</h3><ul id="warnings"></ul>
+        </div>
+      </section>
+    </div>
+    <p class="hint">入力はブラウザへ保存しません。再読み込み・画面離脱時にクリアされます。</p>
+    <noscript><p class="error">この画面にはJavaScriptが必要です。</p></noscript>
+  </main>
+</body>
+</html>
