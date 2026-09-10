@@ -17,6 +17,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(com.example.triage.validation.ContractViolationException.class)
+    public ResponseEntity<ApiError> invalidAnalysis() {
+        return error(HttpStatus.BAD_GATEWAY, "INVALID_ANALYSIS_RESPONSE", "分析結果を検証できませんでした。プレビューを再作成してください。", Map.of());
+    }
+
+    @ExceptionHandler(com.example.triage.service.AnalysisService.AlreadyRunningException.class)
+    public ResponseEntity<ApiError> duplicateAnalysis() {
+        return error(HttpStatus.CONFLICT, "ANALYSIS_ALREADY_RUNNING", "このプレビューは分析中です。", Map.of());
+    }
     @ExceptionHandler(com.example.triage.runtime.PreviewUnavailableException.class)
     public ResponseEntity<ApiError> previewUnavailable() {
         return error(HttpStatus.GONE, "PREVIEW_UNAVAILABLE", "プレビューを再作成して内容を確認してください。", Map.of());
