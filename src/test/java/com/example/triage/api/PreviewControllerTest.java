@@ -38,8 +38,8 @@ class PreviewControllerTest {
                 .andExpect(jsonPath("$.masked_input.context.environment").value("本番"))
                 .andExpect(jsonPath("$.log_line_ids", contains("log:L1", "log:L2")))
                 .andExpect(jsonPath("$.destination", containsString("送信なし")))
-                .andExpect(jsonPath("$.preview_id").doesNotExist())
-                .andExpect(jsonPath("$.expires_at").doesNotExist());
+                .andExpect(jsonPath("$.preview_id", matchesPattern("[0-9a-f-]{36}")))
+                .andExpect(jsonPath("$.expires_at").isString());
     }
 
     @Test void missingSymptom() throws Exception {
@@ -47,6 +47,31 @@ class PreviewControllerTest {
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"))
                 .andExpect(jsonPath("$.field_errors.symptom").value("必須項目です。"))
                 .andExpect(jsonPath("$.request_id", matchesPattern("[0-9a-f-]{36}")))
+                .andExpect(header().string("Cache-Control", "no-store"));
+    }
+
+    @Test void storedContentMatchesHttpResponseAndDeleteUsesSession() throws Exception {
+        var result = mvc.perform(post("/api/previews").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"symptom\":\"障害\",\"log\":\"password=synthetic-secret\"}"))
+                .andExpect(status().isOk()).andReturn();
+        var json = new JsonMapper().readTree(result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8));
+        String id = json.get("preview_id").asString();
+        var session = (org.springframework.mock.web.MockHttpSession) result.getRequest().getSession(false);
+        var stored = context.getBean(PreviewService.class).get(id, session.getId()).response();
+        org.junit.jupiter.api.Assertions.assertEquals(json.get("masked_input").get("log").asString(), stored.maskedInput().log());
+        mvc.perform(delete("/api/previews/" + id)).andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("PREVIEW_UNAVAILABLE"));
+        mvc.perform(delete("/api/previews/" + id).session(session)).andExpect(status().isNoContent())
+                .andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(delete("/api/previews/" + id).session(session)).andExpect(status().isGone());
+    }
+
+    @Test void capacityErrorIsSanitized() throws Exception {
+        var full = mock(PreviewService.class);
+        when(full.create(any(), any())).thenThrow(new com.example.triage.runtime.PreviewCapacityException());
+        MockMvcBuilders.standaloneSetup(new PreviewController(full)).setControllerAdvice(new ApiExceptionHandler()).build()
+                .perform(post("/api/previews").contentType(MediaType.APPLICATION_JSON).content("{\"symptom\":\"障害\"}"))
+                .andExpect(status().isTooManyRequests()).andExpect(jsonPath("$.code").value("PREVIEW_CAPACITY"))
                 .andExpect(header().string("Cache-Control", "no-store"));
     }
 
@@ -98,7 +123,7 @@ class PreviewControllerTest {
 
     @Test void unexpectedExceptionIsSanitized() throws Exception {
         PreviewService failing = mock(PreviewService.class);
-        when(failing.preview(any())).thenThrow(new IllegalStateException("password=internal-secret",
+        when(failing.create(any(), any())).thenThrow(new IllegalStateException("password=internal-secret",
                 new RuntimeException("C:/private/internal.java")));
         MockMvc failedMvc = MockMvcBuilders.standaloneSetup(new PreviewController(failing))
                 .setControllerAdvice(new ApiExceptionHandler()).build();
@@ -114,7 +139,7 @@ class PreviewControllerTest {
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(content().string(not(containsString("internal"))))
                 .andExpect(content().string(not(containsString("Exception"))));
-        verify(failing).preview(any());
+        verify(failing).create(any(), any());
     }
 
     @Test void unsupportedMethod() throws Exception {

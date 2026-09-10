@@ -17,6 +17,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(com.example.triage.runtime.PreviewUnavailableException.class)
+    public ResponseEntity<ApiError> previewUnavailable() {
+        return error(HttpStatus.GONE, "PREVIEW_UNAVAILABLE", "プレビューを再作成して内容を確認してください。", Map.of());
+    }
+
+    @ExceptionHandler(com.example.triage.runtime.PreviewCapacityException.class)
+    public ResponseEntity<ApiError> previewCapacity() {
+        return error(HttpStatus.TOO_MANY_REQUESTS, "PREVIEW_CAPACITY", "プレビューの保持上限に達しました。時間を置いて再度お試しください。", Map.of());
+    }
     @ExceptionHandler(InputValidationException.class)
     public ResponseEntity<ApiError> invalidInput(InputValidationException exception) {
         return error(HttpStatus.BAD_REQUEST, "INVALID_INPUT", "入力内容を確認してください。", exception.fieldErrors());

@@ -20,7 +20,15 @@ public class PreviewController {
 
     @PostMapping(value = "/api/previews", consumes = MediaType.APPLICATION_JSON_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<PreviewResponse> create(@RequestBody IncidentInput input) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(previews.preview(input));
+    public ResponseEntity<PreviewResponse> create(@RequestBody IncidentInput input, jakarta.servlet.http.HttpSession session) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(previews.create(input, session.getId()));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/api/previews/{id}")
+    public ResponseEntity<Void> delete(@org.springframework.web.bind.annotation.PathVariable String id,
+            jakarta.servlet.http.HttpServletRequest request) {
+        var session = request.getSession(false);
+        previews.delete(id, session == null ? null : session.getId());
+        return ResponseEntity.noContent().cacheControl(CacheControl.noStore()).build();
     }
 }

@@ -11,11 +11,39 @@ import org.springframework.stereotype.Service;
 public class PreviewService {
     private final InputValidator validator;
     private final MaskingService masking;
+    private final com.example.triage.runtime.PreviewStore store;
 
     public PreviewService(InputValidator validator, MaskingService masking) {
+        this(validator, masking, new com.example.triage.runtime.PreviewStore());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PreviewService(InputValidator validator, MaskingService masking, com.example.triage.runtime.PreviewStore store) {
         this.validator = validator;
         this.masking = masking;
+        this.store = store;
     }
+
+    public PreviewResponse create(IncidentInput input, String owner) {
+        var prepared = preview(input);
+        var fields = new java.util.HashSet<String>();
+        fields.add("symptom");
+        if (!InputValidator.missing(input.logStatus())) fields.add("log_status");
+        var c = input.context();
+        if (c != null) {
+            String[] ids = {"occurred_at", "environment", "impact", "ongoing_status", "recent_changes", "checks_performed", "destination"};
+            String[] values = {c.occurredAt(), c.environment(), c.impact(), c.ongoingStatus(), c.recentChanges(), c.checksPerformed(), c.destination()};
+            for (int i = 0; i < ids.length; i++)
+                if (!InputValidator.missing(values[i])) fields.add("context." + ids[i]);
+        }
+        return store.save(prepared, new SourceReferences(fields, java.util.Set.copyOf(prepared.logLineIds())), owner);
+    }
+
+    public com.example.triage.runtime.PreviewStore.Snapshot get(String id, String owner) {
+        return store.get(id, owner);
+    }
+
+    public void delete(String id, String owner) { store.delete(id, owner); }
 
     public PreviewResponse preview(IncidentInput input) {
         validator.validate(input);

@@ -7,6 +7,12 @@
   const logStatus = byId("log-status");
   let pending = null;
   let revision = 0;
+  let previewId = null;
+  function discard(id) {
+    if (id) fetch(`/api/previews/${encodeURIComponent(id)}`, {
+      method: "DELETE", credentials: "same-origin", cache: "no-store", keepalive: true
+    }).catch(() => {});
+  }
   // Match Java Character.isWhitespace/isSpaceChar, including supplementary-safe counting.
   const missing = value => /^[\u0009-\u000d\u001c-\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/u.test(value);
   const count = value => Array.from(value).length;
@@ -21,6 +27,7 @@
     logStatus.required = missing(log.value);
   }
   function clearPreview() {
+    discard(previewId); previewId = null;
     byId("preview").hidden = true;
     byId("empty").hidden = false;
     for (const id of ["metadata", "masked-symptom", "masked-log", "context", "warnings"]) byId(id).replaceChildren();
@@ -54,12 +61,16 @@
     const input = data.masked_input;
     const fields = { occurred_at: "発生日時", environment: "環境", impact: "影響範囲", ongoing_status: "継続状況", recent_changes: "直前の変更", checks_performed: "実施済み確認", destination: "引き継ぎ先" };
     // Do not display malformed responses or arbitrary extra properties.
-    if (!input || !input.context || [input.symptom, input.log, input.log_status, data.destination, data.purpose,
+    if (typeof data.preview_id !== "string" || !/^[0-9a-f-]{36}$/.test(data.preview_id) ||
+      typeof data.expires_at !== "string" || !Number.isFinite(Date.parse(data.expires_at)) ||
+      !input || !input.context || [input.symptom, input.log, input.log_status, data.destination, data.purpose,
       ...Object.keys(fields).map(key => input.context[key])].some(value => typeof value !== "string") ||
       !Array.isArray(data.warnings) || data.warnings.some(value => typeof value !== "string") || !Array.isArray(data.log_line_ids)) throw new Error();
     const lines = input.log === "" ? [] : input.log.split(/\r\n|\r|\n/);
     if (lines.length !== data.log_line_ids.length || data.log_line_ids.some((id, i) => id !== `log:L${i + 1}`)) throw new Error();
     entry(byId("metadata"), "送信先", data.destination);
+    previewId = data.preview_id;
+    entry(byId("metadata"), "有効期限", new Date(data.expires_at).toLocaleString("ja-JP"));
     entry(byId("metadata"), "利用目的", data.purpose);
     entry(byId("metadata"), "ログ取得状況", input.log_status);
     byId("masked-symptom").textContent = input.symptom;
@@ -94,18 +105,19 @@
       const response = await fetch("/api/previews", {
         method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ symptom: symptom.value, log: log.value, log_status: logStatus.value || null }),
-        cache: "no-store", credentials: "omit", signal: controller.signal
+        cache: "no-store", credentials: "same-origin", signal: controller.signal
       });
       if (current !== revision) return;
       if (!response.ok) {
         // Never display raw response bodies, exception messages, or unknown server fields.
         error(response.status === 400 ? "入力内容を確認してください。障害事象・文字数・ログ取得状況を見直してください。" :
           response.status === 415 ? "送信形式を確認できませんでした。ページを再読み込みしてください。" :
+          response.status === 429 ? "プレビューの保持上限に達しました。時間を置いて再度お試しください。" :
           "プレビューを取得できませんでした。時間を置いて再度お試しください。");
         return;
       }
       const data = await response.json();
-      if (current !== revision) return;
+      if (current !== revision) { discard(data.preview_id); return; }
       render(data);
       byId("status").textContent = "プレビューを更新しました。AIには送信していません。";
     } catch {
