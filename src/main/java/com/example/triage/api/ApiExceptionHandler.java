@@ -17,6 +17,20 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(com.example.triage.runtime.AnalysisControl.Capacity.class)
+    public ResponseEntity<ApiError> analysisCapacity() {
+        return error(HttpStatus.TOO_MANY_REQUESTS, "ANALYSIS_CAPACITY", "分析の受付上限に達しました。時間を置いて再度お試しください。", Map.of());
+    }
+    @ExceptionHandler(com.example.triage.runtime.AnalysisControl.Duplicate.class)
+    public ResponseEntity<ApiError> duplicateExecution() {
+        return error(HttpStatus.CONFLICT, "DUPLICATE_EXECUTION", "この実行IDは使用済みです。", Map.of());
+    }
+    @ExceptionHandler(com.example.triage.ai.AiFailure.class)
+    public ResponseEntity<ApiError> aiFailure(com.example.triage.ai.AiFailure failure) {
+        boolean timeout = failure.kind() == com.example.triage.ai.AiFailure.Kind.TIMEOUT;
+        return error(timeout ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.SERVICE_UNAVAILABLE,
+                timeout ? "ANALYSIS_TIMEOUT" : "AI_UNAVAILABLE", "分析できませんでした。プレビューを再作成して再度お試しください。", Map.of());
+    }
     @ExceptionHandler(com.example.triage.validation.ContractViolationException.class)
     public ResponseEntity<ApiError> invalidAnalysis() {
         return error(HttpStatus.BAD_GATEWAY, "INVALID_ANALYSIS_RESPONSE", "分析結果を検証できませんでした。プレビューを再作成してください。", Map.of());

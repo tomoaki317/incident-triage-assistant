@@ -15,6 +15,6 @@ public class AnalysisController {
     public ResponseEntity<AnalysisResponse> analyze(@RequestBody AnalyzeRequest input, HttpServletRequest request) {
         var session = request.getSession(false);
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(analyses.analyze(input.previewId(), session == null ? null : session.getId()));
+                .body(analyses.analyze(input.previewId(), session == null ? null : session.getId(), input.executionId()));
     }
 }
