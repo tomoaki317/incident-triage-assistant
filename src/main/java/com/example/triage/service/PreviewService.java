@@ -12,6 +12,10 @@ public class PreviewService {
     private final InputValidator validator;
     private final MaskingService masking;
     private final com.example.triage.runtime.PreviewStore store;
+    @org.springframework.beans.factory.annotation.Value("${triage.ai.mode:stub}")
+    private String aiMode = "stub";
+    @org.springframework.beans.factory.annotation.Value("${triage.openai.model:}")
+    private String aiModel = "";
 
     public PreviewService(InputValidator validator, MaskingService masking) {
         this(validator, masking, new com.example.triage.runtime.PreviewStore());
@@ -36,6 +40,8 @@ public class PreviewService {
             for (int i = 0; i < ids.length; i++)
                 if (!InputValidator.missing(values[i])) fields.add("context." + ids[i]);
         }
+        if ("openai".equals(aiMode)) prepared = new PreviewResponse(prepared.maskedInput(), prepared.logLineIds(),
+                "OpenAI / " + aiModel + "（分析時に計数APIと生成APIへ送信）", prepared.purpose(), prepared.warnings());
         return store.save(prepared, new SourceReferences(fields, java.util.Set.copyOf(prepared.logLineIds())), owner);
     }
 

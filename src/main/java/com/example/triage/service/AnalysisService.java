@@ -59,14 +59,14 @@ public class AnalysisService {
             if (!running.add(id)) throw new AlreadyRunningException();
         }
         try {
-            long tokens = counter.count(snapshot.response().maskedInput());
+            long tokens = counter.count(snapshot.response().maskedInput(), snapshot.sources());
             if (tokens < 0 || tokens > limits.maxInputTokens)
                 throw new InputValidationException(Map.of("preview_id", "入力トークン上限を超えています。入力を抜粋して再確認してください。"));
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0) throw new com.example.triage.ai.AiFailure(com.example.triage.ai.AiFailure.Kind.TIMEOUT);
             var options = new com.example.triage.ai.AiCallOptions(java.time.Duration.ofNanos(
                     Math.min(remaining, limits.clientTimeout.toNanos())), limits.maxOutputTokens, limits.maxCostUsd);
-            String json = client.analyze(snapshot.response().maskedInput(), options).json();
+            String json = client.analyze(snapshot.response().maskedInput(), snapshot.sources(), options).json();
             var result = validator.validate(json, snapshot.sources());
             return new AnalysisResponse(UUID.randomUUID().toString(), result);
         } finally {

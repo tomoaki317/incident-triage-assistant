@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 /** Only for Stub flow testing: code points of serialized input, NOT model tokens. */
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "triage.ai.mode", havingValue = "stub", matchIfMissing = true)
 public class StubTokenCounter implements TokenCounter {
     public long count(MaskedIncidentInput input) {
         String json = new tools.jackson.databind.json.JsonMapper().writeValueAsString(input);

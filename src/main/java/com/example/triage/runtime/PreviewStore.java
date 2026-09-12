@@ -16,6 +16,10 @@ public class PreviewStore {
     private static final int CAPACITY = 100;
     private final Clock clock;
     private final Map<String, Entry> entries = new HashMap<>();
+    @org.springframework.beans.factory.annotation.Value("${triage.ai.mode:stub}")
+    private String aiMode = "stub";
+    @org.springframework.beans.factory.annotation.Value("${triage.openai.model:}")
+    private String aiModel = "";
 
     public PreviewStore() { this(Clock.systemUTC()); }
     public PreviewStore(Clock clock) { this.clock = clock; }
@@ -42,7 +46,8 @@ public class PreviewStore {
         do { id = UUID.randomUUID().toString(); } while (entries.containsKey(id));
         var response = new PreviewResponse(prepared.maskedInput(), prepared.logLineIds(),
                 prepared.destination(), prepared.purpose(), prepared.warnings(), id, now.plus(TTL));
-        entries.put(id, new Entry(owner, new Snapshot(response, sources, "ai-disconnected-v1")));
+        entries.put(id, new Entry(owner, new Snapshot(response, sources,
+                "openai".equals(aiMode) ? "openai/" + aiModel + "/triage-v1" : "ai-disconnected-v1")));
         return response;
     }
 

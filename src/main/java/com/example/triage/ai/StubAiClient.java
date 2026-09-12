@@ -7,6 +7,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** Deterministic local fixture generation, not real incident analysis. */
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(name = "triage.ai.mode", havingValue = "stub", matchIfMissing = true)
 public class StubAiClient implements AiClient {
     private final JsonMapper mapper = new JsonMapper();
 

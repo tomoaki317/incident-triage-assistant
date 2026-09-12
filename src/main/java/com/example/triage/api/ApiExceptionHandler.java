@@ -17,6 +17,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(com.example.triage.ai.OpenAiClient.CostLimitException.class)
+    public ResponseEntity<ApiError> costLimit() {
+        return error(HttpStatus.TOO_MANY_REQUESTS, "REQUEST_COST_LIMIT", "1回の費用上限を超えています。入力を抜粋して再確認してください。", Map.of());
+    }
     @ExceptionHandler(com.example.triage.runtime.AnalysisControl.Capacity.class)
     public ResponseEntity<ApiError> analysisCapacity() {
         return error(HttpStatus.TOO_MANY_REQUESTS, "ANALYSIS_CAPACITY", "分析の受付上限に達しました。時間を置いて再度お試しください。", Map.of());
