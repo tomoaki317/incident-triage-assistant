@@ -11,6 +11,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 public final class OpenAiClient implements AiClient, TokenCounter {
+    private static final org.slf4j.Logger DIAGNOSTICS = org.slf4j.LoggerFactory.getLogger(OpenAiClient.class);
     private final OpenAiSettings settings;
     private final AnalysisLimits limits;
     private final OpenAiTransport transport;
@@ -63,13 +64,29 @@ public final class OpenAiClient implements AiClient, TokenCounter {
     }
     private JsonNode post(String path, String body, String key, long deadline) {
         long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) throw new AiFailure(AiFailure.Kind.TIMEOUT);
-        var reply = transport.post(path, body, key, Duration.ofNanos(remaining));
+        OpenAiTransport.Reply reply;
+        try {
+            if (remaining <= 0) throw new AiFailure(AiFailure.Kind.TIMEOUT);
+            reply = transport.post(path, body, key, Duration.ofNanos(remaining));
+        } catch (AiFailure failure) {
+            diagnostic(path, "unavailable", failure.kind() == AiFailure.Kind.TIMEOUT ? "timeout" : "connection failure");
+            throw failure;
+        }
+        if (reply.status() < 200 || reply.status() >= 300) {
+            diagnostic(path, Integer.toString(reply.status()), reply.status() >= 500 ? "provider 5xx" :
+                    reply.status() >= 400 ? "provider 4xx" : "unexpected HTTP status");
+        }
         if (reply.status() == 429 || reply.status() >= 500) throw new AiFailure(AiFailure.Kind.PROVIDER_UNAVAILABLE);
         if (reply.status() == 400 || reply.status() == 422) throw invalid();
         if (reply.status() < 200 || reply.status() >= 300) throw new AiFailure(AiFailure.Kind.PROVIDER_UNAVAILABLE);
         try { return mapper.readTree(reply.body()); }
         catch (tools.jackson.core.JacksonException e) { throw invalid(); }
+    }
+    // Temporary diagnostics: never pass bodies, credentials, replies or exceptions to the logger.
+    private void diagnostic(String path, String status, String classification) {
+        String model = settings.getModel() != null && settings.getModel().matches("[A-Za-z0-9._-]{1,100}") ? settings.getModel() : "unavailable";
+        DIAGNOSTICS.warn("OpenAI failure api={} http_status={} classification={} model={}",
+                path.equals("/responses/input_tokens") ? "token count" : "responses", status, classification, model);
     }
     private long nonnegative(JsonNode value) {
         if (value == null || !value.isIntegralNumber() || !value.canConvertToLong() || value.asLong() < 0) throw invalid();

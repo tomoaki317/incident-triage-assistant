@@ -17,6 +17,30 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.junit.jupiter.api.Assertions.*;
 
 class OpenAiClientTest {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"count,401,provider 4xx", "responses,429,provider 4xx", "count,503,provider 5xx", "responses,500,provider 5xx", "count,0,timeout", "responses,0,connection failure"})
+    void diagnosticsContainOnlySafeMetadata(String api, int status, String classification) {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(OpenAiClient.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            var snapshot = snapshot("synthetic-private-incident", "password=synthetic-secret");
+            OpenAiTransport transport = (path, body, key, timeout) -> {
+                if (api.equals("responses") && path.endsWith("input_tokens"))
+                    return new OpenAiTransport.Reply(200, "{\"input_tokens\":1000}");
+                if (status == 0) throw new AiFailure(classification.equals("timeout") ? AiFailure.Kind.TIMEOUT : AiFailure.Kind.PROVIDER_UNAVAILABLE);
+                return new OpenAiTransport.Reply(status, "private-provider-body");
+            };
+            var client = new OpenAiClient(settings, limits, transport, () -> "synthetic-test-key");
+            assertThrows(AiFailure.class, () -> call(client, snapshot));
+            assertEquals(1, appender.list.size());
+            var event = appender.list.getFirst();
+            assertEquals("OpenAI failure api=" + (api.equals("count") ? "token count" : "responses")
+                    + " http_status=" + (status == 0 ? "unavailable" : status)
+                    + " classification=" + classification + " model=" + settings.getModel(), event.getFormattedMessage());
+            assertNull(event.getThrowableProxy());
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }
     private final JsonMapper mapper = new JsonMapper();
     private final AnalysisLimits limits = new AnalysisLimits();
     private final OpenAiSettings settings = settings();
