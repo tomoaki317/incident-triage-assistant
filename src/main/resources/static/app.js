@@ -27,10 +27,20 @@
     logStatus.required = missing(log.value);
   }
   function clearPreview() {
+    clearAnalysis();
     discard(previewId); previewId = null;
     byId("preview").hidden = true;
     byId("empty").hidden = false;
     for (const id of ["metadata", "masked-symptom", "masked-log", "context", "warnings"]) byId(id).replaceChildren();
+  }
+  function clearAnalysis() {
+    byId("analyze").hidden = true;
+    byId("analyze").disabled = true;
+    byId("analysis-result").hidden = true;
+    byId("result-content").replaceChildren();
+    byId("analysis-status").textContent = "";
+    byId("analysis-error").textContent = "";
+    byId("analysis-error").hidden = true;
   }
   function error(message) {
     byId("error").textContent = message;
@@ -84,7 +94,91 @@
     for (const [key, label] of Object.entries(fields)) entry(byId("context"), label, input.context[key]);
     data.warnings.forEach(value => { const item = document.createElement("li"); item.textContent = value; byId("warnings").append(item); });
     byId("preview").hidden = false; byId("empty").hidden = true;
+    byId("analyze").hidden = false; byId("analyze").disabled = false;
   }
+  function renderAnalysis(result) {
+    const states = { hypotheses_available: "原因候補あり（未確認）", insufficient_information: "情報不足：原因候補の提示を保留", out_of_scope: "対象外：このPoCの分析範囲外" };
+    if (!result || !Object.hasOwn(states, result.assessment_status)) throw new Error();
+    // Build off-screen so a malformed success response cannot leave partial results.
+    const content = document.createDocumentFragment();
+    const text = value => { if (typeof value !== "string") throw new Error(); return value; };
+    const values = list => { if (!Array.isArray(list)) throw new Error(); return list.map(text).join("、") || "なし"; };
+    function section(title) {
+      const section = document.createElement("section");
+      const heading = document.createElement("h3"); heading.textContent = title;
+      section.append(heading); content.append(section); return section;
+    }
+    function details(parent, pairs) {
+      const dl = document.createElement("dl");
+      pairs.forEach(([label, value]) => entry(dl, label, text(value)));
+      parent.append(dl);
+    }
+    function items(title, list, renderItem, empty = "なし") {
+      if (!Array.isArray(list)) throw new Error();
+      const parent = section(title);
+      if (!list.length) { const p = document.createElement("p"); p.textContent = empty; parent.append(p); }
+      list.forEach(item => renderItem(parent, item));
+    }
+    details(section("判断状態"), [["状態", states[result.assessment_status]], ["理由", result.assessment_reason]]);
+    details(section("状況要約"), [["要約", result.summary]]);
+    items("事実（入力に記載された内容）", result.facts, (p, f) => details(p, [["事実ID", f.id], ["内容", f.statement], ["情報源", f.source_type === "log" ? "ログ記載" : "利用者の申告"], ["根拠参照", f.source_ref]]));
+    items("原因候補（未確認の仮説）", result.hypotheses, (p, h) => details(p, [["候補ID", h.id], ["候補", h.description], ["根拠の事実ID", values(h.evidence_fact_ids)], ["未確認の前提", values(h.unverified_assumptions)], ["確認事項ID", values(h.check_ids)]]), result.assessment_status === "out_of_scope" ? "対象外のため提示しません。" : "情報不足のため提示を保留しています。");
+    const priorities = { high: "高", medium: "中", low: "低" };
+    items("確認事項（未実施の提案）", result.checks, (p, c) => details(p, [["確認ID", c.id], ["確認内容", c.action], ["目的", c.purpose], ["優先度", priorities[c.priority]]]));
+    items("追加で必要な情報", result.missing_information, (p, m) => details(p, [["項目", m.item], ["必要な理由", m.reason]]));
+    const e = result.escalation;
+    details(section("エスカレーション情報"), [["要約", e.summary], ["発生日時", e.occurred_at], ["環境", e.environment], ["影響範囲", e.impact], ["継続状況", e.ongoing_status], ["引き継ぎ先", e.destination], ["関連する事実ID", values(e.related_fact_ids)], ["未確認の候補ID", values(e.hypothesis_ids)], ["実施済み確認", values(e.checks_performed)], ["未解決の確認事項", values(e.open_questions)]]);
+    byId("result-content").replaceChildren(content);
+    byId("analysis-result").hidden = false;
+    byId("result-title").focus();
+  }
+  byId("analyze").addEventListener("click", async () => {
+    if (pending || !previewId || byId("analyze").disabled) return;
+    const id = previewId;
+    // Consume locally before sending. Never automatically retry an uncertain execution.
+    previewId = null;
+    const current = ++revision;
+    const controller = new AbortController(); pending = controller;
+    byId("analyze").disabled = true;
+    byId("submit").disabled = true; byId("inputs").disabled = true;
+    error(""); byId("status").textContent = "";
+    byId("analysis-status").textContent = "分析中です…";
+    const messages = {
+      400: "分析の入力上限または送信条件を満たしていません。入力を抜粋・確認してください。",
+      410: "プレビューの有効期限が切れたか、利用できなくなりました。",
+      409: "この分析は実行中、または実行済みです。重複実行はできません。",
+      429: "同時実行数または利用・費用の上限に達しました。時間を置いてお試しください。",
+      502: "分析結果の検証に失敗したため、結果を表示できません。",
+      503: "分析サービスを利用できません。時間を置いてお試しください。",
+      504: "分析が制限時間内に完了しませんでした。"
+    };
+    function failed(message) {
+      byId("analysis-error").textContent = `${message} 再実行する場合は「送信内容を確認」から新しいプレビューを作成してください。`;
+      byId("analysis-error").hidden = false;
+      byId("analysis-status").textContent = "分析できませんでした。";
+    }
+    // Allow the server's 60-second deadline to return its safe 504 response.
+    const timeout = setTimeout(() => controller.abort(), 65000);
+    try {
+      const response = await fetch("/api/analyses", {
+        method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ preview_id: id, execution_id: crypto.randomUUID() }),
+        credentials: "same-origin", cache: "no-store", signal: controller.signal
+      });
+      if (current !== revision) return;
+      if (response.status !== 200) { failed(messages[response.status] || "分析できませんでした。"); return; }
+      const data = await response.json();
+      if (current !== revision) return;
+      renderAnalysis(data.result);
+      byId("analysis-status").textContent = "分析が完了しました。同じプレビューからは再実行できません。";
+    } catch {
+      if (current === revision) failed("通信が完了しないか、結果を安全に表示できませんでした。サーバー側では処理が完了している可能性があります。");
+    } finally {
+      clearTimeout(timeout);
+      discard(id);
+      if (pending === controller) { pending = null; busy(false); }
+    }
+  });
   form.addEventListener("input", () => { revision++; clearPreview(); error(""); counters(); byId("status").textContent = ""; });
   byId("clear").addEventListener("click", reset);
   form.addEventListener("submit", async event => {

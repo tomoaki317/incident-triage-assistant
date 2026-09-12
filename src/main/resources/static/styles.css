@@ -35,5 +35,9 @@ pre { font-family: inherit; }
 dl { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 8px 12px; font-size: .9rem; }
 dt { color: #526476; } dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 li { overflow-wrap: anywhere; }
+#analysis-result { margin-top: 24px; }
+#result-content { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 32px; }
+#result-content section { min-width: 0; border-top: 1px solid #d9e1e8; }
+#result-content dl + dl { border-top: 1px dashed #d9e1e8; padding-top: 12px; }
 [hidden] { display: none !important; }
-@media (max-width: 850px) { .columns { grid-template-columns: 1fr; } header, main { padding: 20px 16px; } }
+@media (max-width: 850px) { .columns, #result-content { grid-template-columns: 1fr; } header, main { padding: 20px 16px; } }

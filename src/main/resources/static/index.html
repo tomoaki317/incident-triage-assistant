@@ -8,11 +8,11 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header><span class="badge">LOCAL PoC · AI未接続</span><h1>障害の送信内容を確認</h1>
+  <header><span class="badge">LOCAL PoC</span><h1>障害の送信内容を確認・分析</h1>
     <p>障害事象とログを入力し、機密情報をマスキングした送信予定内容を確認します。</p></header>
   <main>
     <aside class="notice">合成データを使用してください。実顧客のログ・個人情報・実際の認証情報は入力しないでください。
-      AIへの送信・解析は行いません。最終判断は担当者が行い、緊急時は既存の障害対応手順を優先してください。</aside>
+      分析ボタンを押すと、表示された送信先で分析します。最終判断は担当者が行い、緊急時は既存の障害対応手順を優先してください。</aside>
     <div class="columns">
       <section class="card" aria-labelledby="input-title">
         <h2 id="input-title">1. 障害内容を入力</h2>
@@ -44,10 +44,19 @@
           <h3>ログ</h3><div id="masked-log" class="log-lines"></div>
           <h3>補足情報</h3><dl id="context"></dl>
           <h3>注意事項</h3><ul id="warnings"></ul>
+          <p class="hint">送信先とマスキング後の内容を確認してから分析してください。</p>
+          <button id="analyze" type="button" hidden>AIで分析する</button>
         </div>
       </section>
     </div>
-    <p class="hint">入力はブラウザへ保存しません。再読み込み・画面離脱時にクリアされます。</p>
+    <p id="analysis-status" role="status" aria-live="polite"></p>
+    <p id="analysis-error" class="error" role="alert" hidden></p>
+    <section id="analysis-result" class="card" aria-labelledby="result-title" hidden>
+      <h2 id="result-title" tabindex="-1">3. 分析結果</h2>
+      <p class="notice">原因候補は未確認の仮説です。最終判断は担当者が行い、緊急時はAIの結果を待たず既存の障害対応手順を優先してください。</p>
+      <div id="result-content"></div>
+    </section>
+    <p class="hint">入力・分析結果はブラウザへ保存しません。再読み込み・画面離脱時にクリアされます。</p>
     <noscript><p class="error">この画面にはJavaScriptが必要です。</p></noscript>
   </main>
 </body>
