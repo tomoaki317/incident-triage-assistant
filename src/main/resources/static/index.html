@@ -26,7 +26,8 @@
             <textarea id="log" rows="12" aria-describedby="log-count" spellcheck="false"></textarea>
             <p id="log-count" class="count">0 / 20,000文字</p>
             <label for="log-status">ログ取得状況 <span class="hint">ログがない場合は必須</span></label>
-            <select id="log-status"><option value="">選択してください</option><option>未取得</option><option>取得できない</option><option>該当ログなし</option></select>
+            <select id="log-status" aria-describedby="log-status-help"><option value="">選択してください</option><option>未取得</option><option>取得できない</option><option>該当ログなし</option></select>
+            <p id="log-status-help" class="hint">ログを後から貼り付けた場合は、取得状況の選択が残っていないか確認してください。必要なら「選択してください」に戻せます。</p>
           </fieldset>
           <div class="actions"><button id="submit" type="submit">送信内容を確認</button><button id="clear" type="button" class="secondary">入力をクリア</button></div>
           <p id="status" role="status" aria-live="polite"></p>

@@ -7,6 +7,7 @@ import tools.jackson.databind.JsonNode;
 
 @Component
 public final class ReferenceValidator {
+    private static final org.slf4j.Logger DIAGNOSTICS = org.slf4j.LoggerFactory.getLogger(ReferenceValidator.class);
     /** Must be called after structural validation. */
     public void validate(JsonNode root, SourceReferences sources) {
         Set<String> facts = uniqueIds(root.get("facts"));
@@ -16,7 +17,7 @@ public final class ReferenceValidator {
         for (JsonNode fact : root.get("facts")) {
             Set<String> allowed = "log".equals(fact.get("source_type").asString())
                     ? sources.logLineIds() : sources.inputFieldIds();
-            require(allowed.contains(fact.get("source_ref").asString()));
+            require(allowed.contains(fact.get("source_ref").asString()), "fact_source");
         }
         for (JsonNode hypothesis : root.get("hypotheses")) {
             requireReferences(hypothesis.get("evidence_fact_ids"), facts);
@@ -30,19 +31,20 @@ public final class ReferenceValidator {
     private Set<String> uniqueIds(JsonNode elements) {
         Set<String> ids = new HashSet<>();
         for (JsonNode element : elements) {
-            require(ids.add(element.get("id").asString()));
+            require(ids.add(element.get("id").asString()), "unique_id");
         }
         return ids;
     }
 
     private void requireReferences(JsonNode references, Set<String> ids) {
         for (JsonNode reference : references) {
-            require(ids.contains(reference.asString()));
+            require(ids.contains(reference.asString()), "element_reference");
         }
     }
 
-    private void require(boolean condition) {
+    private void require(boolean condition, String item) {
         if (!condition) {
+            DIAGNOSTICS.warn("Analysis validation classification=INVALID_REFERENCE item={}", item);
             throw new ContractViolationException(ContractViolationException.Code.INVALID_REFERENCE);
         }
     }

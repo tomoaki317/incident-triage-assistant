@@ -80,6 +80,175 @@ class OpenAiClientTest {
     private OpenAiClient client(Fake f) { return new OpenAiClient(settings, limits, f, () -> "synthetic-test-key"); }
     private AiResponse call(OpenAiClient c, PreviewStore.Snapshot s) { return c.analyze(s.response().maskedInput(), s.sources(), options); }
 
+    @ParameterizedTest @ValueSource(strings = {"未取得", "取得できない", "該当ログなし"})
+    void combinedLogStatusReachesBothRequestsExactlyAsPreviewed(String status) {
+        var p = previews.create(new IncidentInput("別の時刻のログ。関連は未確認。",
+                "password=synthetic-secret\r\nINFO synthetic", status, null), "owner");
+        var s = store.get(p.previewId(), "owner");
+        var f = new Fake(valid(s)); var c = client(f);
+        try (var control = new ControlResource(limits)) {
+            new AnalysisService(store, c, validator, limits, control.value, c).analyze(p.previewId(), "owner");
+        }
+        assertEquals(2, f.bodies.size());
+        for (String body : f.bodies) {
+            var data = mapper.readTree(mapper.readTree(body).at("/input/0/content").asString());
+            assertEquals(mapper.valueToTree(p.maskedInput()), data.get("masked_input"));
+            assertEquals(status, data.at("/masked_input/log_status").asString());
+            assertTrue(data.get("input_field_ids").toString().contains("log_status"));
+            assertEquals(mapper.valueToTree(p.logLineIds()), data.get("log_line_ids"));
+            assertFalse(body.contains("synthetic-secret"));
+        }
+        assertTrue(p.warnings().stream().anyMatch(w -> w.startsWith("ログ本文とログ取得状況")));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"A", "B", "C"})
+    void fixedQualityCasesPassHttpContractWithFakeTransport(String id) throws Exception {
+        tools.jackson.databind.JsonNode definition = null;
+        for (var entry : mapper.readTree(evaluationResource("/evaluation/cases.json")))
+            if (entry.get("id").asString().equals(id)) definition = entry;
+        assertNotNull(definition);
+        var input = mapper.readValue(evaluationResource(definition.get("input_resource").asString()), IncidentInput.class);
+        String response = evaluationResource(definition.get("example_response_resource").asString());
+        var session = new org.springframework.mock.web.MockHttpSession();
+        var p = previews.create(input, session.getId());
+        var f = new Fake(response); var c = client(f);
+        try (var control = new ControlResource(limits)) {
+            var service = new AnalysisService(store, c, validator, limits, control.value, c);
+            var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                    .standaloneSetup(new com.example.triage.api.AnalysisController(service))
+                    .setControllerAdvice(new com.example.triage.api.ApiExceptionHandler()).build();
+            var actual = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .post("/api/analyses").session(session).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                    .content(mapper.writeValueAsString(Map.of("preview_id", p.previewId()))))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Cache-Control", "no-store"))
+                    .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+            var result = mapper.readTree(actual).get("result");
+            assertEquals(mapper.readTree(response), result);
+            assertEquals(definition.get("assessment_status"), result.get("assessment_status"));
+            if (!id.equals("A")) {
+                assertTrue(result.get("hypotheses").isEmpty());
+                assertTrue(result.at("/escalation/hypothesis_ids").isEmpty());
+            }
+        }
+        for (String body : f.bodies) {
+            var data = mapper.readTree(mapper.readTree(body).at("/input/0/content").asString());
+            assertEquals(mapper.valueToTree(p.maskedInput()), data.get("masked_input"));
+            assertEquals(mapper.valueToTree(p.logLineIds()), data.get("log_line_ids"));
+            for (var evidence : definition.get("log_evidence").properties()) {
+                var line = data.get("log_lines").get(Integer.parseInt(evidence.getKey().substring(5)) - 1);
+                assertEquals(evidence.getKey(), line.get("source_ref").asString());
+                assertTrue(line.get("text").asString().contains(evidence.getValue().asString()));
+            }
+            if (id.equals("A")) assertFalse(data.get("input_field_ids").toString().contains("log_status"));
+        }
+        assertEquals(2, f.paths.size());
+        assertFalse(definition.get("human_checks").isEmpty());
+    }
+
+    private String evaluationResource(String path) throws Exception {
+        try (var stream = getClass().getResourceAsStream(path)) {
+            assertNotNull(stream);
+            return new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    // Fixed synthetic responses test transport/contracts and evaluation criteria, not model quality.
+    @ParameterizedTest @ValueSource(strings = {"out-of-scope", "hypotheses-available", "insufficient-information"})
+    void manualCasesThroughFakeOpenAiAndAnalysisService(String fixture) throws Exception {
+        var input = mapper.readValue(contract(fixture + "-input"), IncidentInput.class);
+        var p = previews.create(input, "owner");
+        var f = new Fake(contract(fixture)); var c = client(f);
+        try (var control = new ControlResource(limits)) {
+            var result = new AnalysisService(store, c, validator, limits, control.value, c)
+                    .analyze(p.previewId(), "owner").result();
+            assertEquals(mapper.readTree(contract(fixture)), mapper.valueToTree(result));
+            var generation = mapper.readTree(f.bodies.get(1));
+            var data = mapper.readTree(generation.at("/input/0/content").asString());
+            String instructions = generation.get("instructions").asString();
+            if (fixture.equals("hypotheses-available")) {
+                assertTrue(duplicateFactSupported(result, data));
+                assertTrue(instructions.contains("参照先のtextまたは入力項目の内容がstatement全体を裏付ける"));
+                assertTrue(instructions.contains("複数行にまたがる事実は行ごとに分け"));
+            } else {
+                assertTrue(data.get("log_lines").isEmpty());
+                assertTrue(result.hypotheses().isEmpty());
+                assertTrue(result.escalation().hypothesisIds().isEmpty());
+                assertEquals("不明", result.escalation().destination());
+                if (fixture.equals("insufficient-information")) {
+                    assertTrue(evidenceFirst(result));
+                    assertTrue(instructions.contains("checksは証拠の取得を優先する"));
+                    assertTrue(instructions.contains("原因候補をchecksやmissing_informationへ言い換えて混入させない"));
+                } else {
+                    assertTrue(instructions.contains("out_of_scopeでも全必須プロパティとescalationオブジェクトを出力する"));
+                    assertTrue(instructions.contains("空文字やnullでなく「不明」"));
+                }
+            }
+        }
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"\n", "\r\n", "\r"})
+    void explicitLogMappingPreservesBlankTrailingAndDoubleDigitLines(String newline) {
+        String log = "header" + newline + newline + "Duplicate entry 'SYNTHETIC'" + newline
+                + String.join(newline, Collections.nCopies(8, "stack frame")) + newline;
+        var s = snapshot("商品登録で500", log);
+        var factory = new OpenAiRequestFactory(settings);
+        var request = mapper.valueToTree(factory.countRequest(s.response().maskedInput(), s.sources()));
+        var data = mapper.readTree(request.at("/input/0/content").asString());
+        var lines = data.get("log_lines");
+        String[] original = s.response().maskedInput().log().split("\\r\\n|\\r|\\n", -1);
+        assertEquals(original.length, lines.size());
+        for (int i = 0; i < original.length; i++) {
+            assertEquals(s.response().logLineIds().get(i), lines.get(i).get("source_ref").asString());
+            assertEquals(original[i], lines.get(i).get("text").asString());
+        }
+        assertEquals("", lines.get(1).get("text").asString());
+        assertEquals("", lines.get(lines.size() - 1).get("text").asString());
+        assertEquals("log:L10", lines.get(9).get("source_ref").asString());
+    }
+
+    @Test void evaluationRejectsExistingButUnsupportedLogReference() throws Exception {
+        var input = mapper.readValue(contract("hypotheses-available-input"), IncidentInput.class);
+        var s = snapshot(input.symptom(), input.log());
+        String wrong = contract("hypotheses-available").replace("log:L3", "log:L1");
+        // Existence validation alone passes. Content evaluation must reject the timestamp-only line.
+        var result = validator.validate(wrong, s.sources());
+        var request = mapper.valueToTree(new OpenAiRequestFactory(settings)
+                .countRequest(s.response().maskedInput(), s.sources()));
+        assertFalse(duplicateFactSupported(result, mapper.readTree(request.at("/input/0/content").asString())));
+    }
+
+    @Test void evaluationRejectsUnsupportedTechnologyChecksForBareHttp500() throws Exception {
+        var s = snapshot("商品登録時にHTTP 500が発生した", null);
+        String wrong = contract("insufficient-information")
+                .replace("発生時刻付近のアプリケーションログを確認する", "DB接続プールの設定を確認する");
+        assertFalse(evidenceFirst(validator.validate(wrong, s.sources())));
+    }
+
+    private boolean duplicateFactSupported(TriageResult result, tools.jackson.databind.JsonNode data) {
+        var fact = result.facts().stream().filter(f -> f.id().equals("F2")).findFirst().orElseThrow();
+        if (fact.sourceType() != SourceType.LOG || !fact.statement().contains("重複キー")) return false;
+        for (var line : data.get("log_lines"))
+            if (line.get("source_ref").asString().equals(fact.sourceRef()))
+                return line.get("text").asString().contains("Duplicate entry");
+        return false;
+    }
+
+    private boolean evidenceFirst(TriageResult result) {
+        if (!result.hypotheses().isEmpty() || result.checks().isEmpty()) return false;
+        var first = result.checks().getFirst();
+        if (first.priority() != Priority.HIGH || !first.action().contains("ログ")) return false;
+        String proposals = mapper.writeValueAsString(List.of(result.checks(), result.missingInformation()));
+        return !proposals.matches("(?s).*(DB接続プール|HikariCP|認証方式|Spring Security).*");
+    }
+
+    private String contract(String name) throws Exception {
+        try (var stream = getClass().getResourceAsStream("/contracts/" + name + ".json")) {
+            assertNotNull(stream);
+            return new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
     @Test void normalStructuredOutputIncludesOnlyReviewedContentAndAllRequestParts() {
         var s = snapshot("person@example.test", "password=synthetic-secret\nDuplicate entry");
         var f = new Fake(valid(s)); var c = client(f);

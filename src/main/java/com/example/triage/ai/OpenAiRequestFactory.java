@@ -42,6 +42,16 @@ public final class OpenAiRequestFactory {
         data.put("masked_input", input);
         data.put("input_field_ids", new TreeSet<>(sources.inputFieldIds()));
         data.put("log_line_ids", sources.logLineIds().stream().sorted(Comparator.comparingInt(id -> Integer.parseInt(id.substring(5)))).toList());
+        // Pair each reviewed ID with its text; retain blank and trailing lines just as the preview does.
+        var logLines = new ArrayList<Map<String, String>>();
+        if (!input.log().isEmpty()) {
+            String[] lines = input.log().split("\\r\\n|\\r|\\n", -1);
+            for (int i = 0; i < lines.length; i++) {
+                String id = "log:L" + (i + 1);
+                if (sources.logLineIds().contains(id)) logLines.add(Map.of("source_ref", id, "text", lines[i]));
+            }
+        }
+        data.put("log_lines", logLines);
         return Map.of("model", settings.getModel(), "instructions", instructions,
                 "input", List.of(Map.of("role", "user", "content", mapper.writeValueAsString(data))),
                 "text", Map.of("format", Map.of("type", "json_schema", "name", "triage_result", "strict", true, "schema", schema)));

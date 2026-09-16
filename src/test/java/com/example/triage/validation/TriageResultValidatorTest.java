@@ -27,6 +27,56 @@ class TriageResultValidatorTest {
     private final TriageResultValidator validator = new TriageResultValidator(
             new SchemaValidator(), new ReferenceValidator());
 
+    @Test
+    void reproducesOutOfScopeWithEmptyUnknownScalar() throws IOException {
+        ObjectNode root = (ObjectNode) MAPPER.readTree(resource("out-of-scope"));
+        object(root, "/escalation").put("destination", "");
+        var error = assertThrows(ContractViolationException.class,
+                () -> validator.validate(root.toString(), sources("out-of-scope")));
+        assertEquals(ContractViolationException.Code.INVALID_STRUCTURE, error.code());
+        object(root, "/escalation").put("destination", "不明");
+        assertEquals(AssessmentStatus.OUT_OF_SCOPE,
+                validator.validate(root.toString(), sources("out-of-scope")).assessmentStatus());
+    }
+
+    @Test
+    void diagnosticsIdentifyMinLengthWithoutLeakingUnknownKeysOrValues() throws IOException {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(SchemaValidator.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            ObjectNode root = (ObjectNode) MAPPER.readTree(resource("out-of-scope"));
+            object(root, "/escalation").put("destination", "");
+            root.put("private-key\nsecret", "private-response");
+            root.put("summary", "private-input-log-and-response");
+            assertThrows(ContractViolationException.class,
+                    () -> validator.validate(root.toString(), sources("out-of-scope")));
+            assertEquals(Set.of(
+                    "Analysis validation classification=INVALID_STRUCTURE item=schema.minLength",
+                    "Analysis validation classification=INVALID_STRUCTURE item=schema.additionalProperties"),
+                    appender.list.stream().map(e -> e.getFormattedMessage()).collect(java.util.stream.Collectors.toSet()));
+            appender.list.forEach(e -> assertNull(e.getThrowableProxy()));
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
+    @Test
+    void referenceDiagnosticsDoNotIncludeGeneratedReferenceOrBody() throws IOException {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ReferenceValidator.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        try {
+            ObjectNode root = (ObjectNode) MAPPER.readTree(resource("out-of-scope"));
+            object(root, "/facts/0").put("source_ref", "private-key\nprivate-log");
+            root.put("summary", "private-input-and-response");
+            assertThrows(ContractViolationException.class,
+                    () -> validator.validate(root.toString(), sources("out-of-scope")));
+            assertEquals(1, appender.list.size());
+            assertEquals("Analysis validation classification=INVALID_REFERENCE item=fact_source",
+                    appender.list.getFirst().getFormattedMessage());
+            assertNull(appender.list.getFirst().getThrowableProxy());
+        } finally { logger.detachAppender(appender); appender.stop(); }
+    }
+
     @ParameterizedTest
     @CsvSource({
             "hypotheses-available,HYPOTHESES_AVAILABLE",

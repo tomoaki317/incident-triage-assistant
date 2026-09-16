@@ -1,0 +1,26 @@
+[
+  {
+    "id": "A",
+    "input_resource": "/contracts/hypotheses-available-input.json",
+    "example_response_resource": "/contracts/hypotheses-available.json",
+    "assessment_status": "hypotheses_available",
+    "log_evidence": {"log:L2": "DataIntegrityViolationException", "log:L3": "Duplicate entry"},
+    "human_checks": ["一意制約違反の可能性を示す", "重複キーの事実はlog:L3、例外名の事実はlog:L2を参照する", "二重送信やログと申告の関連を断定しない", "既存データ・制約定義・例外処理とHTTP応答の対応を読み取りで確認する"]
+  },
+  {
+    "id": "B",
+    "input_resource": "/contracts/insufficient-information-input.json",
+    "example_response_resource": "/contracts/insufficient-information.json",
+    "assessment_status": "insufficient_information",
+    "log_evidence": {},
+    "human_checks": ["原因候補と引き継ぎ内の候補参照は空", "エラーログ・発生日時とタイムゾーン・操作内容の証拠取得を優先する", "根拠のない個別技術の確認や原因の断定をしない"]
+  },
+  {
+    "id": "C",
+    "input_resource": "/evaluation/bluetooth-input.json",
+    "example_response_resource": "/evaluation/bluetooth-response.json",
+    "assessment_status": "out_of_scope",
+    "log_evidence": {},
+    "human_checks": ["対象外理由と既存サポート窓口の確認を案内する", "原因候補は空", "必須項目を満たし検証エラーにならない", "具体的な部署や連絡先を創作しない", "ドライバ変更や設定変更などの操作手順を出さない"]
+  }
+]

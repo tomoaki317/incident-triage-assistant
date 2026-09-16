@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "assessment_status": "out_of_scope",
+  "assessment_reason": "PCとBluetooth周辺機器の接続トラブルは、Webアプリ障害の一次切り分けを対象とする初版の範囲外です。",
+  "summary": "Windows PCでBluetoothイヤホンが接続できないとの申告があります。",
+  "facts": [
+    {"id": "F1", "statement": "Windows PCでBluetoothイヤホンが接続できないとの申告がある", "source_type": "user_report", "source_ref": "symptom"}
+  ],
+  "hypotheses": [],
+  "checks": [
+    {"id": "C1", "action": "利用者が既存のPC・周辺機器のサポート窓口を確認する", "purpose": "対象範囲を扱う窓口に症状を引き継ぐため", "priority": "high"}
+  ],
+  "missing_information": [],
+  "escalation": {
+    "summary": "Windows PCとBluetoothイヤホンの接続について、既存のサポート窓口への相談が必要です。原因は未判定です。",
+    "occurred_at": "不明",
+    "environment": "不明",
+    "impact": "不明",
+    "ongoing_status": "不明",
+    "destination": "不明",
+    "related_fact_ids": ["F1"],
+    "hypothesis_ids": [],
+    "checks_performed": [],
+    "open_questions": ["既存のPC・周辺機器のサポート窓口"]
+  },
+  "references": []
+}

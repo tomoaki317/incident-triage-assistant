@@ -18,6 +18,12 @@
       "action": "発生時刻付近のアプリケーションログを確認する",
       "purpose": "対応する例外とエラーメッセージを確認する",
       "priority": "high"
+    },
+    {
+      "id": "C2",
+      "action": "発生日時とタイムゾーン、行った操作とリクエストを確認する",
+      "purpose": "申告されたHTTP 500に対応する調査対象を特定する",
+      "priority": "high"
     }
   ],
   "missing_information": [

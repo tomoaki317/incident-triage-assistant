@@ -13,6 +13,28 @@ import static org.junit.jupiter.api.Assertions.*;
 class PreviewServiceTest {
     private final PreviewService service = new PreviewService(new InputValidator(), new MaskingService());
 
+    @ParameterizedTest @ValueSource(strings = {"未取得", "取得できない", "該当ログなし"})
+    void logAndStatusArePreservedWithReviewWarning(String status) {
+        var result = service.preview(new IncidentInput("別の時刻のログを提示。該当時刻との関係は未確認。", "INFO synthetic", status, null));
+        assertEquals("INFO synthetic", result.maskedInput().log());
+        assertEquals(status, result.maskedInput().logStatus());
+        assertEquals(1, result.warnings().stream().filter(w -> w.startsWith("ログ本文とログ取得状況")).count());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"未取得", "取得できない", "該当ログなし"})
+    void blankLogAndStatusDoNotProduceCombinationWarning(String status) {
+        var result = service.preview(new IncidentInput("障害", " \r\n　", status, null));
+        assertEquals("", result.maskedInput().log());
+        assertEquals(status, result.maskedInput().logStatus());
+        assertTrue(result.warnings().stream().noneMatch(w -> w.startsWith("ログ本文とログ取得状況")));
+    }
+
+    @Test void logWithoutStatusRemainsUnspecifiedWithoutCombinationWarning() {
+        var result = service.preview(new IncidentInput("障害", "INFO synthetic", null, null));
+        assertEquals("不明", result.maskedInput().logStatus());
+        assertTrue(result.warnings().stream().noneMatch(w -> w.startsWith("ログ本文とログ取得状況")));
+    }
+
     @Test void normalInput() {
         var raw = new IncidentInput("HTTP 500", "ERROR\r\nstack\n", null, null);
         var result = service.preview(raw);

@@ -59,9 +59,11 @@ public class PreviewService {
             int count = masked.log().split("\\r\\n|\\r|\\n", -1).length;
             for (int i = 1; i <= count; i++) lines.add("log:L" + i);
         }
-        return new PreviewResponse(masked, lines, "未選定（AI未接続・送信なし）", "障害の一次切り分け支援",
-                List.of("マスキングは完全ではありません。送信予定の全項目を確認してください。",
+        var warnings = new ArrayList<>(List.of("マスキングは完全ではありません。送信予定の全項目を確認してください。",
                         "氏名、住所、電話番号、顧客ID、社内ホスト名などは確認・除去してください。",
                         "合成データを使用してください。最終判断は担当者が行い、緊急時は既存手順を優先してください。"));
+        if (!InputValidator.missing(input.log()) && !InputValidator.missing(input.logStatus()))
+            warnings.add("ログ本文とログ取得状況が両方入力されています。選択が残っていないか確認してください。別のログを提示している場合は、発生事象にその旨と該当ログとの関係を記載してください。");
+        return new PreviewResponse(masked, lines, "未選定（AI未接続・送信なし）", "障害の一次切り分け支援", warnings);
     }
 }
