@@ -1,0 +1,67 @@
+[
+  {
+    "id": "mixed_log_lines", "base": "/contracts/hypotheses-available.json",
+    "input": "/contracts/hypotheses-available-input.json", "pointer": "/facts/1/statement",
+    "source_ref": "log:L2",
+    "bad": "2026-09-09 14:32:15にDataIntegrityViolationExceptionが記録されている",
+    "good": "ログにDataIntegrityViolationExceptionが記載されている",
+    "prompt_guard": "日時の事実と例外名の事実を分離する"
+  },
+  {
+    "id": "status_scope", "base": "/contracts/insufficient-information.json",
+    "input": "/contracts/insufficient-information-input.json", "pointer": "/facts/0/statement",
+    "source_ref": "log_status",
+    "bad": "発生日時・環境・影響範囲・対応履歴が不明である",
+    "good": "ログは未取得との申告がある",
+    "prompt_guard": "log_statusが裏付けるのはログ取得状況の申告だけ"
+  },
+  {
+    "id": "unconfirmed_correlation", "base": "/contracts/hypotheses-available.json",
+    "input": "/contracts/hypotheses-available-input.json", "pointer": "/assessment_reason",
+    "bad": "商品登録のHTTP 500と同時刻に制約違反が発生した",
+    "good": "HTTP 500の申告と制約違反のログがある。両者の対応は未確認",
+    "prompt_guard": "候補を要約するときに「確認された」「発生した」に変えない"
+  },
+  {
+    "id": "unconfirmed_escalation", "base": "/contracts/hypotheses-available.json",
+    "input": "/contracts/hypotheses-available-input.json", "pointer": "/escalation/summary",
+    "bad": "制約違反の例外によりHTTP 500を返していることが確認された",
+    "good": "HTTP 500の申告と制約違反のログがある。両者の対応は未確認",
+    "prompt_guard": "assessment_reason・summary・escalation.summaryにも、facts・hypothesesと同じ不確実性を保つ"
+  },
+  {
+    "id": "invented_progress", "base": "/contracts/insufficient-information.json",
+    "input": "/contracts/insufficient-information-input.json", "pointer": "/escalation/summary",
+    "bad": "ログがなく調査が進んでいないことが確認された",
+    "good": "HTTP 500との申告がある。ログ未取得で原因は未判定",
+    "prompt_guard": "log_statusだけから「調査が進んでいない」とは判断できない"
+  },
+  {
+    "id": "unsupported_database_check", "base": "/contracts/insufficient-information.json",
+    "input": "/contracts/insufficient-information-input.json", "pointer": "/checks/1/action",
+    "bad": "DB接続状況と制約違反の有無を調べる",
+    "good": "発生日時とタイムゾーン、操作内容とリクエストを確認する",
+    "prompt_guard": "優先度を下げても許可されない"
+  },
+  {
+    "id": "missing_timezone", "base": "/contracts/insufficient-information.json",
+    "input": "/contracts/insufficient-information-input.json", "pointer": "/checks/1/action",
+    "bad": "発生日時と操作内容を確認する",
+    "good": "発生日時とタイムゾーン、操作内容を確認する",
+    "prompt_guard": "「日時」「時刻」だけでタイムゾーンの確認を省略しない"
+  },
+  {
+    "id": "missing_support_guidance", "base": "/evaluation/bluetooth-response.json",
+    "input": "/evaluation/bluetooth-input.json", "pointer": "/escalation/summary",
+    "bad": "Bluetoothの接続問題は対象外です",
+    "good": "対象外のため既存のサポート窓口を確認してください",
+    "prompt_guard": "既存のサポート窓口を利用者が確認する案内を必ず含める"
+  },
+  {
+    "id": "invented_key_meaning", "base": "/contracts/hypotheses-available.json",
+    "input": "/contracts/hypotheses-available-input.json", "pointer": "/checks/0/action",
+    "bad": "商品コードABC001の既存データを確認する",
+    "good": "重複値ABC001の対象カラムと制約定義、既存データを読み取りで確認する",
+    "prompt_guard": "ログの重複値を商品コードなど入力にない業務上の意味へ変換しない"
+  }
+]
