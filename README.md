@@ -1,157 +1,167 @@
 # Incident Triage Assistant
 
-AIを活用したWebアプリ障害の一次切り分け支援ツール。
+Java / Spring Boot系業務Webアプリの障害発生時に、非エンジニアを含む担当者の一次切り分けを支援する、ローカル実行向けPoCです。
 
-実装仕様は [docs/specification.md](docs/specification.md)、実装方針は
-[docs/implementation-plan.md](docs/implementation-plan.md) を参照してください。
+障害事象・ログ・補足情報を整理し、原因候補、次に確認する事項、不足情報、エスカレーション情報を提示します。確認漏れや引き継ぎ漏れを減らすことを目指していますが、削減効果は未測定です。
 
-## 現在の実装範囲
+**AI結果は未確認の仮説を含み、担当者が最終判断します。** 自動修復や原因の自動確定は行いません。緊急時はAIの結果を待たず、既存の障害対応・連絡手順を優先してください。入力には合成データを使用します。
 
-入力検証・マスキング・プレビュー管理・分析API・JSON出力契約検証を実装しています。既定は通信しないStubで、OpenAIへの切替は明示設定が必要です。
+## 実装済みの機能
 
-- Java 21 / Spring Boot 4.1.1 / Maven Wrapper 3.9.11。
-- 仕様7章のJSON Schema（Draft 2020-12）、record DTO、enum。
-- 厳格なJSON解析、構造検証、入力・ログ・要素IDの参照整合性検証。
-- 原因候補提示・情報不足・対象外の合成入力と正常応答、および異常系テスト。
+| 項目 | 現在の実装 |
+| --- | --- |
+| 技術構成 | Java 21 / Spring Boot 4.1.1 / Maven Wrapper 3.9.11。静的HTML・CSS・JavaScriptを同じアプリから配信。DB不要 |
+| 入力画面 | 障害事象、ログ、ログ取得状況、発生日時・タイムゾーン、環境、継続状況、引き継ぎ先 |
+| 入力処理 | 必須条件・列挙値・Unicodeコードポイント数による上限検証、定義済みパターンによるマスキング |
+| 送信前確認 | マスキング済み入力、ログ行ID、送信先モデル、利用目的をプレビュー。画面の「AIで分析する」を押してから外部送信 |
+| AI接続 | OpenAI Responses APIと入力トークン計数API。Structured Outputsを使用し、受信後もアプリ側で検証 |
+| 応答検証 | 厳密なJSON解析、JSON Schema、参照整合性検証、DTO変換。入力由来項目の構成後にも再検証 |
+| 結果表示 | 判断状態・理由に加え、状況要約／事実／原因候補／確認事項／不足情報／エスカレーション情報の6系統を表示 |
+| 実行管理 | 匿名セッションによるプレビュー所有権確認、有効期限、実行IDの重複拒否、全体同時実行数・時間制限 |
+| 実行モード | 外部AIへ通信しないStubと、実OpenAIへの接続を切り替え可能 |
 
-`PreviewService.preview(IncidentInput)` は全入力項目を検証し、マスキング済み入力、
-ログ各行に対応する行ID（末尾の空行を含む）、送信先・目的・注意事項を返します。
-元入力とは別の `MaskedIncidentInput` 型を使い、置換対応表は処理後に保持しません。
-未入力の補足情報は「不明」、ログなしは空文字と空の行ID一覧で表します。
-検証エラーは `InputValidationException.fieldErrors()` で項目IDと固定メッセージを確認できます。
+対象として想定する障害は、DB制約違反、DB接続失敗、外部APIタイムアウト、アプリケーション例外によるHTTP 500です。デモの障害元はSpring Boot＋MySQLのREST APIを想定しています。本ツールから障害元DBには接続しません。
 
-`POST /api/previews` に `Content-Type: application/json` で `IncidentInput` を送ると、
-上記の `PreviewResponse` をJSONで返します（200）。ローカル利用向けに127.0.0.1へバインドします。
-入力検証エラー・不正JSONは400、Content-Type不正は415、想定外エラーは500です。
-エラーは `request_id`、`code`、`message`、`field_errors` の共通形式で、本文・内部例外は返しません。
-成功・エラーとも `Cache-Control: no-store` を付けます。
-Spring WebのログはINFOに設定し、DEBUG/TRACEで本文や例外詳細が記録されることを防ぎます。
+判断状態と原因候補数は次の契約で検証します。状態の意味が入力に対して妥当かどうかは、人手評価の対象です。
 
-静的画面では障害事象・ログ・ログ取得状況を入力し、文字数とマスキング後の内容を確認できます。
-通信中は送信ボタンを無効にし、入力変更時に旧プレビューを消去します。
-入力・応答はブラウザの永続ストレージやCookieに保存せず、再読み込み・画面離脱・戻る操作でクリアします。
-APIエラーは画面側の固定メッセージで表示し、内部例外や生のエラー本文は表示しません。
+| 判断状態 | 意味 | 候補数 |
+| --- | --- | --- |
+| `hypotheses_available` | 根拠付きの仮説を提示。原因確定ではない | 1〜3件 |
+| `insufficient_information` | 情報不足により候補提示を保留 | 0件 |
+| `out_of_scope` | このPoCの分析対象外 | 0件 |
 
-`POST /api/previews` は `preview_id`（UUID v4）と `expires_at`（UTC）を返します。
-`PreviewService.create(input, owner)` で作成し、後続処理は `get(previewId, owner)` から
-同じマスキング済み内容・根拠参照集合・AI設定版を取得できます。元入力・置換対応表は保持しません。
-保持期間は作成から5分、単一プロセスのメモリ上で最大100件です。上限時は429となります。
-取得時は必ず期限と所有セッションを検証し、期限切れ・不明ID・他セッションは同じ410で拒否します。
-期限切れは新規作成・該当ID取得時と、1分間隔の定期処理で削除します。再起動すると全件失われます。
-`DELETE /api/previews/{id}` は所有セッションのプレビューを削除します（204）。
-画面の編集・クリア・離脱でも削除を試み、通信できない場合は期限切れで破棄します。
-Cookieには本文を含まない匿名セッションIDだけを使用します（HttpOnly・SameSite=Strict）。
-作成は利用者が確認するための候補の発行であり、解析実行への同意を自動的に記録するものではありません。
+## 処理フロー
 
-`POST /api/analyses` に同じ匿名セッションのCookieと `{"preview_id":"作成時のID"}` を送ると、
-保持済みのマスキング済み入力と根拠参照集合だけを `AiClient` に渡します。既定は通信しない `StubAiClient` です。
-応答JSONも既存のSchema・参照・判断状態検証を通し、成功時は `request_id` と `result` を返します（200）。
-Stubは事象に「ネットワーク機器の侵害調査」があれば対象外、そうでなくログに `Duplicate entry` があれば
-原因候補提示、それ以外は情報不足を返します。実際の診断ではなく、フロー検証用の決定的な結果です。
-ID不明・期限切れ・他セッションは410、同一プレビューの分析中は409、応答契約違反は502、想定外例外は500です。
-成功・エラーともno-storeとし、生応答や内部例外は返しません。
-分析を開始したプレビューは成功・失敗とも終了時に削除し、再試行には新しいプレビューを必要とします。
-所有関係の検証失敗や重複拒否では、実行中または他ユーザーのプレビューを削除しません。
-分析リクエストにはUUID v4の `execution_id` を指定できます。省略時はサーバーが発行し、成功応答へ返します。
-通信失敗後も同じ要求を識別するには、呼び出し元で発行したIDを指定してください。
-実行IDは匿名セッション・preview_idに紐付けて分析前に原子的に確保し、再利用は409で拒否します。
-本文なしの実行記録はAsia/Tokyoの当日終了までメモリに保持し、上限1000件で受付を停止します。
-全体同時実行は2件、待機キューなし、超過は429です。処理全体は60秒で504となり、クライアントへ中断を要求します。
-中断に応じない処理が残る場合、その処理の終了まで実行枠を保持します。外部の処理・課金停止は保証できません。
-`triage.analysis.*` で全体timeout（最大60秒）、client-timeout（初期50秒）、max-input-tokens（32000）、
-max-output-tokens（8000）、max-cost-usd（0.03）、max-execution-records（1000）を設定します。
-クライアントには残り時間以内のtimeout・出力上限・費用上限・自動リトライ0回を渡します。
-OpenAIアダプターは `AiClient.analyze(input, sources, options)` を使い、原文や元の対応表を受け取りません。
-`AiResponse` は入力・出力トークンと、設定単価による費用（USD、キャッシュ入力割引込み）を返します。
-サービスは本文・利用量を永続保存しません。Stubの利用量と費用はnullです。失敗応答の費用を0と見なさないでください。
-AI側429/5xxは503、timeoutは504、契約検証失敗は502です。アプリ・クライアントの自動リトライはありません。
-再起動を跨ぐ実行制御・運用状態ファイル・日次予算・公開デモの回数制限は今回の対象外です。
+```mermaid
+flowchart TD
+    A[入力] --> B[入力バリデーション]
+    B --> C[マスキング]
+    C --> D[送信内容のプレビュー]
+    D --> E[利用者が確認して分析を実行]
+    E --> F[OpenAI: 入力トークン計数・生成]
+    F --> G[JSON / Schema / Reference検証・DTO変換]
+    G --> H[入力由来4項目の構成・確認事項の並べ替え]
+    H --> I[同じSchema・参照集合で再検証]
+    I --> J[画面表示]
+```
 
-分析結果UI・引き継ぎ文面生成、公開デモのサンプル受付、RAG、認証、履歴保存は未実装です。
-OpenAIモードのプレビューには送信先モデルと、計数API・生成APIへの送信予定を表示します。
-障害元の想定はSpring Boot＋MySQLのREST APIですが、本ツールのテストにDBは不要です。
+StubモードではOpenAIへの通信部分を固定応答に置き換えます。プレビュー作成だけではOpenAIへ送信しません。OpenAIモードでは、分析時の計数APIにもマスキング済み入力が送られます。
 
-## テスト
+入力を編集するとプレビューと結果を無効化します。分析に使用したプレビューは成功・失敗とも処理終了時に破棄し、再実行には新しいプレビューを必要とします。自動再試行は行いません。
 
-3ケースの合成データ、ログ取得状況の調査結果、自動テストと実AI評価の範囲は
-[固定品質評価](docs/quality-evaluation.md) を参照してください。
+## AIとコードの責任分担
 
-画面は、下記のJava・Maven環境設定後に `.\mvnw.cmd spring-boot:run` で起動し、
-`http://127.0.0.1:8080/` で利用できます。AI解析ボタンはありません。
+### コードで処理・検証する範囲
 
-JDK 21を用意し、JAVA_HOMEをJDKのディレクトリに設定してください。
-Mavenの個別インストールは不要です。初回のみWrapperと依存ライブラリの取得にネットワーク接続が必要です。
-テスト自体はAI APIキーや外部サービスを使用しません。
+- 定義済みパターンのマスキング、プレビューの所有権・有効期限の確認。
+- JSONの型・必須項目・列挙値・長さ・件数、未知のプロパティ・null等の拒否。
+- 要素IDの一意性、参照先の実在、情報源の種類と参照先の対応、判断状態に対する候補数の整合。
+- 確認事項を高→中→低の順に並べ替え。同じ優先度内の順序とIDは保持。
+- 次の4項目を、同一プレビューの確認済みマスキング済み入力と `SourceReferences` から構成。
+
+| 最終結果の項目 | 転記元 |
+| --- | --- |
+| `escalation.occurred_at` | `context.occurred_at`（発生日時・タイムゾーン） |
+| `escalation.environment` | `context.environment`（環境） |
+| `escalation.ongoing_status` | `context.ongoing_status`（継続状況） |
+| `escalation.destination` | `context.destination`（引き継ぎ先） |
+
+4項目は専用入力欄の値を採用し、AI生成値で上書き・補完しません。未入力は「不明」とし、ログや障害事象から抽出しません。未提供と明示的な「不明」は参照集合で区別しますが、画面上の値はどちらも「不明」です。転記する値の切り捨て・要約・分割は行いません。
+
+**AI応答を先に検証し、合格した応答だけを構成し直して再検証します。** 構成予定の項目でも、元のAI応答が契約違反なら拒否します。不正応答を後処理で救済せず、生応答や自由形式回答を代わりに表示しません。
+
+実装の入口は [AnalysisService](src/main/java/com/example/triage/service/AnalysisService.java) と [TriageResultValidator](src/main/java/com/example/triage/validation/TriageResultValidator.java) です。
+
+### AIに残る範囲
+
+判断状態の選択、判断理由、状況要約、事実の記述、原因候補、確認事項、不足情報、引き継ぎ要約などの自由文はAIが生成します。影響範囲と実施済み確認も今回の4項目転記には含まれません。影響範囲はマスキング後に出力上限を超える可能性があり、実施済み確認は入力上限2,000文字に対して出力の1要素が1,000文字までという制約があります。
+
+参照IDが存在しても、その参照が文章全体を裏付けるとは限りません。自由文の意味を汎用的に判定する検証器は実装していません。マスキングも全機密情報の除去を保証するものではありません。
+
+## 評価結果とAIの限界
+
+2026-09-24時点の自動テスト実績は **Java 254件、JavaScript 14件、合計268件成功** です。契約違反の拒否、マスキング、参照、実行制御、入力・プレビュー・最終結果の連携などを合成データで検証しています。JavaScriptテストは簡易DOMとFake HTTPを用い、実ブラウザの見た目を保証するものではありません。
+
+実OpenAIのA/B/C評価では、画面上で期待する判断状態、情報不足時の候補抑制、対象外時の窓口案内、確認事項の優先度順を確認しました。確認済み入力で不明だった4項目は、評価した9件すべての最終表示でも不明でした。4項目の実値転記は自動テストで確認しており、専用入力欄から実AIまでの実値評価は未確認です。
+
+一方、AI自由文には、申告とログを根拠なく「同時刻」「対応するログ」と表現する例や、ログ取得状況から調査進捗・ログの不存在を断定する例が残っています。4項目の最終表示が正しくても、AI生成文全体を合格とは扱いません。
+
+実AI記録は画面PDFによる確認で、生JSON・HTTPステータス・検証実行記録を直接確認したものではありません。構造不正の拒否は自動テストで確認しています。B/Cの一部はログ取得状況が固定条件と異なり、同一入力3回の安定性評価には含められません。
+
+**268件の成功はAI回答の意味的正しさを保証しません。** 根拠が記述全体を支持するか、未確認の時刻・因果関係・操作履歴を断定していないかは、人が評価します。既存の受入基準をすべて満たしたとはしていません。
+
+- [固定品質評価と再テスト手順](docs/quality-evaluation.md)
+- [実AI品質改善の対応記録](docs/quality-fix-notes.md)
+- [固定ケースと人手の確認基準](src/test/resources/evaluation/cases.json)
+
+起動時は `OpenAI prompt loaded version=triage-v1 sha256=...` を記録します。実AI再評価ではモデル、実施日時、プロンプト版・ハッシュ、固定入力条件、各基準の合否を確認してください。起動ログと照合できない実行条件は未確認として扱います。
+
+## セキュリティ・プライバシー
+
+- 実業務・実顧客のログ、実在者の個人情報、実際の認証情報をサンプル入力に使わず、合成データを使用します。
+- APIキーはサーバー側の `OPENAI_API_KEY` 環境変数から読みます。ブラウザやリポジトリへ渡しません。
+- APIキー、入力本文、AI生応答をアプリの診断ログへ記録しません。固定のエラー分類・検証項目名等を記録し、本文を含む例外を返しません。
+- APIキー形式のラベル、Authorization、Cookie、パスワード、接続文字列、メールアドレスを定義済みパターンでマスキングします。氏名・住所・電話番号・顧客ID・社内ホスト名などを含め、利用者によるプレビュー確認・除去が必要です。
+- プレビューは単一プロセスのメモリに保持し、有効期限は5分、最大100件。期限切れは定期処理等で削除します。匿名セッションのCookieは本文を含まず、HttpOnly・SameSite=Strictです。
+- 入力・結果をDB、ファイル、localStorage等へ永続保存しません。画面のクリア・離脱・再読み込み時に表示を消去します。API応答には `Cache-Control: no-store` を付けます。
+- 入力とAI出力は `textContent` で表示し、HTMLとして実行しません。AIにツール実行権限を与えず、入力中のURLから情報を取得しません。
+- OpenAIへの生成要求は `store:false` を指定します。事業者側の保持・学習利用・処理地域・削除条件は、これだけでは確定しません。利用アカウントでの確認が必要です。
+
+画面では利用者が送信内容を確認して分析ボタンを押す流れです。APIは同一セッションのプレビューIDを検証しますが、人が内容を読んだことを機械的に証明する仕組みではありません。
+
+## 実行制限と現在の制約
+
+| 項目 | 現在の初期値・動作 |
+| --- | --- |
+| 同時実行 | 全体2件。待機キューなし |
+| 重複実行 | `execution_id`（UUID v4）の再利用を拒否。同一プレビューの同時分析も拒否 |
+| 実行記録 | 本文なし、メモリ上で当日分を管理（Asia/Tokyo）、最大1,000件。再起動で失われる |
+| タイムアウト | 処理全体60秒、OpenAIの計数・生成は合わせて最大50秒。外部側の処理・課金停止は保証しない |
+| 入力制限 | 入力トークン上限32,000。事前に要求JSONのUTF-8バイト数でも保守的に制限し、通過後にAPIで計数 |
+| 出力制限 | 最大8,000トークン。途中終了・出力上限到達等は成功扱いにしない |
+| 費用制御 | 設定単価と入力数・最大出力数から生成前に評価し、1回の予算設定0.03 USDを超える場合は生成を拒否 |
+
+ローカルのバイト数検査は正確なトークン計数ではなく、モデル上限以内でも入力を拒否する場合があります。計数APIが失敗した場合は推定値で生成を続行しません。費用制御は実請求額の保証や日次予算管理ではありません。モデル・単価・上限の設定は [application.properties](src/main/resources/application.properties) を参照してください。
+
+未実装・現在のスコープ外：
+
+- 自動修復、本番操作、原因・重大度・影響範囲の自動確定。
+- RAG、社内文書検索、社内システム・監視基盤・障害元DBへの直接接続。
+- ユーザー認証・顧客別アクセス制御。匿名セッションの所有権確認はログイン認証ではありません。
+- 障害履歴・会話履歴の保存、継続会話による調査。
+- チケット起票、通知、ファイルアップロード、URLからのログ取得。
+- 引き継ぎ文面の専用コピー機能。現在はエスカレーション情報を項目別に表示します。
+- 影響範囲・直前の変更・実施済み確認の専用入力UI（DTO/APIには項目あり）。
+- 公開デモ用の固定サンプル受付、セッションごとの時間当たり回数制限、日次費用管理、再起動を跨ぐ実行制御。
+
+GitHubでのソース公開を想定しており、アプリは既定で `127.0.0.1` にバインドします。公開Webサービスとしての運用準備は未完了です。仕様・実装計画には未実装の計画も含まれます。
+
+## ローカル実行（Windows PowerShell）
+
+JDK 21を用意し、リポジトリを取得したフォルダで実行します。Mavenの個別インストールは不要です。初回はWrapperと依存ライブラリのダウンロードにネットワーク接続が必要です。JavaScriptテストには `node:test` を利用できるNode.jsも必要です。
 
 ```powershell
+cd <リポジトリを取得したフォルダ>
+# JAVA_HOMEが未設定の場合、実際のJDK 21の場所を指定
 $env:JAVA_HOME = 'C:\path\to\jdk-21'
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
-.\mvnw.cmd test
+java -version
 ```
 
-Unix系では `./mvnw test` を使用します。結果は `target/surefire-reports/` に出力されます。
-
-この作業環境用に `.tools/` 内へJDKを取得している場合は、次の設定でも実行できます。
-`.tools/` と `.maven-user-home/` はGit管理対象外です。
+### Stubモード（外部AIへの通信なし）
 
 ```powershell
-$env:JAVA_HOME = (Get-ChildItem .tools -Directory -Filter 'jdk-21*' | Select-Object -First 1).FullName
-$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
-$env:MAVEN_USER_HOME = "$PWD/.maven-user-home"
-$env:MAVEN_OPTS = "-Dmaven.repo.local=$PWD/.maven-user-home/repository"
-.\mvnw.cmd test
+$env:TRIAGE_AI_MODE = 'stub'
+.\mvnw.cmd spring-boot:run
 ```
 
-## 検証の入口
+[http://127.0.0.1:8080/](http://127.0.0.1:8080/) を開き、合成の障害事象を入力します。ログがない場合は取得状況を選び、任意の補足情報を入力してください。「送信内容を確認」→プレビュー確認→「AIで分析する」の順に操作します。
 
-`TriageResultValidator.validate(json, sourceReferences)` が、構造・参照の検証に成功した場合だけ
-`TriageResult` を返します。失敗時は固定コードの `ContractViolationException` を返し、
-元の本文・パーサー例外・Schema診断を例外やログへ含めません。
+Stubはフロー確認用の固定応答です。事象に「ネットワーク機器の侵害調査」があれば対象外、そうでなくログに `Duplicate entry` があれば原因候補あり、それ以外は情報不足を返します。Bluetooth等を判別する実モデルの代わりにはなりません。
 
-`SourceReferences` には呼び出し側が実入力から作成した項目ID・マスキング後のログ行IDだけを渡します。
-未入力を「不明」と補完した項目は含めません。応答自身が申告した参照集合を信用しないでください。
+### OpenAIモード（外部通信・課金あり）
 
-Schemaはクラスパスの固定ファイルのみを読み、検証時に外部Schemaを取得しません。
-検証は構造と参照の実在を確認するもので、原因仮説の正しさを保証するものではありません。
-
-## OpenAI接続（ローカルの手動確認用）
-
-通常テストはFake通信だけを使用し、実OpenAIの利用権限・Schema受理・生成品質は手動確認が必要です。
-APIキーは `OPENAI_API_KEY` 環境変数だけから取得し、未設定時は通信せず503を返します。
-`triage.ai.mode=stub|openai` で切り替えます。モデルは `triage.openai.model`、
-単価は `input-usd-per-million` / `cached-input-usd-per-million` / `output-usd-per-million` です。
-初期候補は `gpt-4.1-mini-2025-04-14`、100万トークン当たりUSD 0.40 / 0.10 / 1.60。
-モデル変更時は単価・利用条件を再確認してください。税・為替・契約割引は計算対象外です。
-
-JDK HttpClientから固定URL `https://api.openai.com/v1/responses/input_tokens` と `/responses` に各1回POSTします。
-SDK不使用、リダイレクト禁止、接続再試行無効、アプリの再試行0回。接続上限5秒、計数と生成を合わせて
-クライアント50秒以内かつ全体60秒の残り時間以内です。途中終了・拒否・最大出力到達は502になります。
-`store:false`、`stream:false`、`truncation:disabled` を指定し、ツール・会話履歴・外部URL取得は使いません。
-HTTPのwire/debugログが有効ならアダプターの起動を拒否します。
-
-Structured Outputsには元Schemaから生成した送信用Schemaを `text.format` / `strict:true` で渡します。
-未対応の `allOf` 条件だけを送信用から外し、enum/constの型と空配列のitemsを補います。
-元Schemaは変更せず、受信後の判断状態・件数・参照検証を省略しません。コードフェンスや自由文の復元はしません。
-
-モデル固有のローカルtokenizerは未導入です。代替として、指示・全入力・行ID・参照集合・送信用Schemaを
-含む生成リクエスト全体のUTF-8バイト数で保守的にローカル制限します。32,000超なら計数APIにも送りません。
-これは正確なトークン数ではなく、日本語などでは上限以内の入力も拒否します。
-通過後もOpenAI計数APIで同じmodel/instructions/input/textを計数し、32,000超または計数失敗なら生成しません。
-計数APIもマスキング済み確認内容をOpenAIへ送信する処理です。API内部の整形分をローカル方式だけで保証せず、
-実計数を必須にしています。計数APIが利用できない場合、推定値で生成を続行しません。
-費用もローカル検査と実計数の両段階で「入力単価×入力数＋出力単価×8,000」を評価し、$0.03超なら生成しません。
-最大出力8,000トークンは生成APIへそのまま渡します。利用量はusageから読み、cached_tokensを分けて実費を計算します。
-
-公式資料：[モデル・料金](https://developers.openai.com/api/docs/models/gpt-4.1-mini)、
-[Structured Outputsの対応範囲](https://developers.openai.com/api/docs/guides/structured-outputs)、
-[入力トークン計数](https://developers.openai.com/api/reference/typescript/resources/responses/subresources/input_tokens/methods/count)。
-`store:false` は事業者側の全保存を禁止する保証ではありません。保存期間・学習利用・処理地域・削除条件は
-利用アカウントで確認してください。公開デモの条件は未整備です。
-
-### 手動確認手順
-
-1. 上記JDK・Maven環境を設定します。専用の合成データだけを使用してください。
-2. 起動用PowerShellでキーを非表示入力し、OpenAIモードで起動します（キーをコマンドへ直書きしません）。
+起動中なら `Ctrl+C` で停止します。キーはコマンドへ直書きせず、非表示の入力プロンプトから環境変数に設定します。
 
 ```powershell
 $env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host 'OpenAI API key' -AsSecureString)).Password
@@ -159,21 +169,66 @@ $env:TRIAGE_AI_MODE = 'openai'
 .\mvnw.cmd spring-boot:run
 ```
 
-3. 別のPowerShellでプレビューを作成します。この段階ではOpenAIへ送りません。
+リポジトリのモデル設定値は `gpt-4.1-mini-2025-04-14` です。利用前にアカウントのAPI利用条件とモデル・単価設定を確認してください。これは現在の提供状況や料金を保証する記載ではありません。
+
+画面を開き、プレビューの送信先がOpenAIと意図したモデルになっていることを確認します。「AIで分析する」を押すと、入力トークン計数APIと生成APIへ通信します。キー未設定時や計数失敗時には生成を続行しません。
+
+終了時は `Ctrl+C` で停止し、このPowerShellの環境変数を削除します。
 
 ```powershell
-$previewBody = @{ symptom = 'HTTP 500'; log = 'Duplicate entry synthetic-key' } | ConvertTo-Json
-$preview = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/previews' -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($previewBody)) -SessionVariable triageSession
-$preview | ConvertTo-Json -Depth 10
+Remove-Item Env:OPENAI_API_KEY, Env:TRIAGE_AI_MODE -ErrorAction SilentlyContinue
 ```
 
-4. 表示されたマスキング済み内容と送信先を確認し、5分以内に以下を実行します。ここで外部通信・課金が発生します。
+### 自動テスト
 
 ```powershell
-$analysisBody = @{ preview_id = $preview.preview_id; execution_id = [guid]::NewGuid().ToString() } | ConvertTo-Json
-$result = Invoke-RestMethod -Uri 'http://127.0.0.1:8080/api/analyses' -Method Post -ContentType 'application/json' -Body $analysisBody -WebSession $triageSession
-$result | ConvertTo-Json -Depth 20
+.\mvnw.cmd test
+node src/test/js/analysis-display.test.cjs
+node src/test/js/context-input.test.cjs
 ```
 
-5. 検証済みresultが返り、再実行が拒否されることを確認します。失敗時も新しいプレビューが必要です。
-6. サーバーを停止し、起動側の環境変数を `Remove-Item Env:OPENAI_API_KEY, Env:TRIAGE_AI_MODE` で削除します。
+Java 254件＋JavaScript 14件が確認済みです。テストはStub / Fake transportを使用し、実OpenAIへの通信やAPIキーは不要です。Javaの結果は `target/surefire-reports/` に出力されます。
+
+実AI評価は自動テストと分け、[固定品質評価の手順](docs/quality-evaluation.md)で実施します。A/B/Cを同一条件で各3回評価し、語句の一致ではなく根拠と文章の意味を人が確認します。本文・AI生応答を診断ログや評価記録へ保存せず、ケースID・実行条件・合否・失敗分類を記録します。
+
+## スクリーンショットの配置案
+
+画像は未追加です。追加時は「実装済みの機能」の直後に、次の3枚を順に配置する想定です。
+
+1. **入力画面**：合成の障害事象と4項目の専用入力欄。
+2. **マスキング後プレビュー**：合成の秘密値が置換された状態、ログ行ID、送信先モデル、補足情報。
+3. **分析結果**：事実・未確認の原因候補・優先度付き確認事項・エスカレーション情報。必要なら情報不足の例を併記。
+
+合成データだけを使用し、APIキーや個人情報が写っていないことを確認します。画像の説明にはStubか実AIかを明記し、表示例が回答品質の保証にならないようにします。
+
+## ディレクトリ構成
+
+```text
+src/main/java/com/example/triage/
+  api/          # HTTPエンドポイント・エラー応答
+  dto/          # 入出力のrecord・enum
+  service/      # プレビュー・分析・最終結果構成
+  validation/   # 入力・Schema・参照検証
+  masking/      # マスキング
+  ai/           # Stub・OpenAI接続・要求構成
+  runtime/      # メモリ上のプレビュー・実行制御
+src/main/resources/
+  application.properties
+  prompts/      # 固定プロンプト
+  schema/       # 出力JSON Schema
+  static/       # HTML・CSS・JavaScript
+src/test/
+  java/         # JUnit・MockMvc等の合成テスト
+  js/           # 画面処理のテスト
+  resources/
+    contracts/  # 入力と出力契約の合成例
+    evaluation/ # 固定評価ケース・品質回帰例
+docs/          # 仕様・実装計画・評価手順・改善記録
+```
+
+## 関連文書
+
+- [仕様書](docs/specification.md)
+- [初期実装方針](docs/implementation-plan.md)
+- [入力整合性と固定品質評価](docs/quality-evaluation.md)
+- [実AI品質改善の対応記録](docs/quality-fix-notes.md)
