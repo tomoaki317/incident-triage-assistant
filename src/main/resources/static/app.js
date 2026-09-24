@@ -5,6 +5,10 @@
   const symptom = byId("symptom");
   const log = byId("log");
   const logStatus = byId("log-status");
+  const occurredAt = byId("occurred-at");
+  const environment = byId("environment");
+  const ongoingStatus = byId("ongoing-status");
+  const destination = byId("destination");
   let pending = null;
   let revision = 0;
   let previewId = null;
@@ -17,7 +21,7 @@
   const missing = value => /^[\u0009-\u000d\u001c-\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/u.test(value);
   const count = value => Array.from(value).length;
   function counters() {
-    for (const [field, max] of [[symptom, 2000], [log, 20000]]) {
+    for (const [field, max] of [[symptom, 2000], [log, 20000], [occurredAt, 100], [destination, 200]]) {
       const length = count(field.value);
       const output = byId(`${field.id}-count`);
       output.textContent = `${length.toLocaleString("ja-JP")} / ${max.toLocaleString("ja-JP")}文字`;
@@ -59,6 +63,7 @@
     form.reset();
     // Explicit values also clear browser-restored form state.
     symptom.value = log.value = logStatus.value = "";
+    occurredAt.value = environment.value = ongoingStatus.value = destination.value = "";
     clearPreview(); error(""); counters(); busy(false);
     byId("status").textContent = "";
   }
@@ -189,6 +194,8 @@
     if (missing(symptom.value)) errors.push("障害事象を入力してください。");
     if (count(symptom.value) > 2000) errors.push("障害事象は2,000文字以内にしてください。");
     if (count(log.value) > 20000) errors.push("ログは20,000文字以内に抜粋してください。");
+    if (count(occurredAt.value) > 100) errors.push("発生日時・タイムゾーンは100文字以内にしてください。");
+    if (count(destination.value) > 200) errors.push("引き継ぎ先は200文字以内にしてください。");
     if (missing(log.value) && !logStatus.value) errors.push("ログがない場合はログ取得状況を選択してください。");
     if (errors.length) { error(errors.join("\n")); return; }
     const controller = new AbortController(); pending = controller;
@@ -198,13 +205,15 @@
     try {
       const response = await fetch("/api/previews", {
         method: "POST", headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ symptom: symptom.value, log: log.value, log_status: logStatus.value || null }),
+        body: JSON.stringify({ symptom: symptom.value, log: log.value, log_status: logStatus.value || null,
+          context: { occurred_at: occurredAt.value, environment: environment.value,
+            ongoing_status: ongoingStatus.value, destination: destination.value } }),
         cache: "no-store", credentials: "same-origin", signal: controller.signal
       });
       if (current !== revision) return;
       if (!response.ok) {
         // Never display raw response bodies, exception messages, or unknown server fields.
-        error(response.status === 400 ? "入力内容を確認してください。障害事象・文字数・ログ取得状況を見直してください。" :
+        error(response.status === 400 ? "入力内容を確認してください。障害事象・文字数・ログ取得状況・補足情報を見直してください。" :
           response.status === 415 ? "送信形式を確認できませんでした。ページを再読み込みしてください。" :
           response.status === 429 ? "プレビューの保持上限に達しました。時間を置いて再度お試しください。" :
           "プレビューを取得できませんでした。時間を置いて再度お試しください。");

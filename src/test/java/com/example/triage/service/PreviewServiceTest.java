@@ -11,6 +11,29 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PreviewServiceTest {
+    @ParameterizedTest @ValueSource(strings = {"all", "empty", "partial", "unknown"})
+    void uiContextValuesKeepPresenceAndNormalizeOnlyMissingFields(String mode) {
+        String occurred = mode.equals("all") ? "2026-09-24 10:00 JST" : mode.equals("unknown") ? "不明" : "";
+        String environment = mode.equals("empty") ? "" : mode.equals("unknown") ? "不明" : "検証";
+        String ongoing = mode.equals("all") ? "解消済み" : mode.equals("unknown") ? "不明" : "";
+        String destination = mode.equals("empty") ? "" : mode.equals("unknown") ? "不明" : "運用窓口";
+        var mapper = new JsonMapper();
+        var json = mapper.createObjectNode().put("symptom", "本番で10時に発生、継続中")
+                .put("log", "").put("log_status", "未取得");
+        json.set("context", mapper.createObjectNode().put("occurred_at", occurred).put("environment", environment)
+                .put("ongoing_status", ongoing).put("destination", destination));
+        var preview = service.create(mapper.treeToValue(json, IncidentInput.class), "ui-test");
+        var sources = service.get(preview.previewId(), "ui-test").sources();
+        var c = preview.maskedInput().context();
+        String[] ids = {"occurred_at", "environment", "ongoing_status", "destination"};
+        String[] raw = {occurred, environment, ongoing, destination};
+        String[] masked = {c.occurredAt(), c.environment(), c.ongoingStatus(), c.destination()};
+        for (int i = 0; i < ids.length; i++) {
+            assertEquals(raw[i].isEmpty() ? "不明" : raw[i], masked[i]);
+            assertEquals(!raw[i].isEmpty(), sources.inputFieldIds().contains("context." + ids[i]));
+        }
+    }
+
     private final PreviewService service = new PreviewService(new InputValidator(), new MaskingService());
 
     @ParameterizedTest @ValueSource(strings = {"未取得", "取得できない", "該当ログなし"})
