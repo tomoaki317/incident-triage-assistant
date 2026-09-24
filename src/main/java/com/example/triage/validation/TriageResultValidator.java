@@ -41,4 +41,15 @@ public final class TriageResultValidator {
             throw new ContractViolationException(ContractViolationException.Code.INVALID_STRUCTURE);
         }
     }
+
+    /** Validate the final composed result through the same complete contract pipeline. */
+    public TriageResult revalidate(TriageResult result, SourceReferences sources) {
+        final String json;
+        try {
+            json = mapper.writeValueAsString(result);
+        } catch (JacksonException ex) {
+            throw new ContractViolationException(ContractViolationException.Code.INVALID_STRUCTURE);
+        }
+        return validate(json, sources);
+    }
 }

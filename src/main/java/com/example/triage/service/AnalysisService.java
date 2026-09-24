@@ -68,6 +68,30 @@ public class AnalysisService {
                     Math.min(remaining, limits.clientTimeout.toNanos())), limits.maxOutputTokens, limits.maxCostUsd);
             String json = client.analyze(snapshot.response().maskedInput(), snapshot.sources(), options).json();
             var result = validator.validate(json, snapshot.sources());
+            // Only validated results are reordered. Stable sorting preserves IDs and ties.
+            var checks = result.checks().stream().sorted(Comparator.comparingInt(c -> switch (c.priority()) {
+                case HIGH -> 0;
+                case MEDIUM -> 1;
+                case LOW -> 2;
+            })).toList();
+            // Transfer only dedicated, reviewed fields that fit the existing scalar contract.
+            // Input limits: occurred_at=100, destination=200, environment/ongoing_status=enums.
+            // impact may expand beyond 1000 after masking; checks_performed allows 2000.
+            // Neither is transferred, summarized, truncated or split here.
+            // Presence comes from the same snapshot, not from the normalized "不明" value.
+            var context = snapshot.response().maskedInput().context();
+            var sources = snapshot.sources();
+            var original = result.escalation();
+            var escalation = new com.example.triage.dto.Escalation(original.summary(),
+                    provided(sources, "occurred_at", context.occurredAt()),
+                    provided(sources, "environment", context.environment()), original.impact(),
+                    provided(sources, "ongoing_status", context.ongoingStatus()),
+                    provided(sources, "destination", context.destination()),
+                    original.relatedFactIds(), original.hypothesisIds(), original.checksPerformed(), original.openQuestions());
+            result = new com.example.triage.dto.TriageResult(result.schemaVersion(), result.assessmentStatus(),
+                    result.assessmentReason(), result.summary(), result.facts(), result.hypotheses(), checks,
+                    result.missingInformation(), escalation, result.references());
+            result = validator.revalidate(result, sources);
             return new AnalysisResponse(UUID.randomUUID().toString(), result);
         } finally {
             // The plan requires a fresh preview for reanalysis, including failed attempts.
@@ -76,5 +100,9 @@ public class AnalysisService {
                 running.remove(id);
             }
         }
+    }
+
+    private static String provided(SourceReferences sources, String field, String maskedValue) {
+        return sources.inputFieldIds().contains("context." + field) ? maskedValue : "不明";
     }
 }

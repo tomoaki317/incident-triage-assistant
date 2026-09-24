@@ -102,7 +102,7 @@
     // Build off-screen so a malformed success response cannot leave partial results.
     const content = document.createDocumentFragment();
     const text = value => { if (typeof value !== "string") throw new Error(); return value; };
-    const values = list => { if (!Array.isArray(list)) throw new Error(); return list.map(text).join("、") || "なし"; };
+    const values = (list, empty = "なし") => { if (!Array.isArray(list)) throw new Error(); return list.map(text).join("、") || empty; };
     function section(title) {
       const section = document.createElement("section");
       const heading = document.createElement("h3"); heading.textContent = title;
@@ -125,9 +125,9 @@
     items("原因候補（未確認の仮説）", result.hypotheses, (p, h) => details(p, [["候補ID", h.id], ["候補", h.description], ["根拠の事実ID", values(h.evidence_fact_ids)], ["未確認の前提", values(h.unverified_assumptions)], ["確認事項ID", values(h.check_ids)]]), result.assessment_status === "out_of_scope" ? "対象外のため提示しません。" : "情報不足のため提示を保留しています。");
     const priorities = { high: "高", medium: "中", low: "低" };
     items("確認事項（未実施の提案）", result.checks, (p, c) => details(p, [["確認ID", c.id], ["確認内容", c.action], ["目的", c.purpose], ["優先度", priorities[c.priority]]]));
-    items("追加で必要な情報", result.missing_information, (p, m) => details(p, [["項目", m.item], ["必要な理由", m.reason]]));
+    items("追加で必要な情報", result.missing_information, (p, m) => details(p, [["項目", m.item], ["必要な理由", m.reason]]), "今回の分析結果では追加情報が挙げられていません。情報が十分であることを保証するものではありません。");
     const e = result.escalation;
-    details(section("エスカレーション情報"), [["要約", e.summary], ["発生日時", e.occurred_at], ["環境", e.environment], ["影響範囲", e.impact], ["継続状況", e.ongoing_status], ["引き継ぎ先", e.destination], ["関連する事実ID", values(e.related_fact_ids)], ["未確認の候補ID", values(e.hypothesis_ids)], ["実施済み確認", values(e.checks_performed)], ["未解決の確認事項", values(e.open_questions)]]);
+    details(section("エスカレーション情報"), [["要約", e.summary], ["発生日時", e.occurred_at], ["環境", e.environment], ["影響範囲", e.impact], ["継続状況", e.ongoing_status], ["引き継ぎ先", e.destination], ["関連する事実ID", values(e.related_fact_ids)], ["未確認の候補ID", values(e.hypothesis_ids)], ["実施済み確認", values(e.checks_performed, "実施済み確認の記載なし")], ["未解決の確認事項", values(e.open_questions, "今回の分析結果には記載されていません。解決済みであることを示すものではありません。")]]);
     byId("result-content").replaceChildren(content);
     byId("analysis-result").hidden = false;
     byId("result-title").focus();

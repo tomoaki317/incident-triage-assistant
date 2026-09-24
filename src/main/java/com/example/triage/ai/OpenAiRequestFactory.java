@@ -8,6 +8,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /** One payload builder for local preflight, server token counting and generation. */
 public final class OpenAiRequestFactory {
+    private static final org.slf4j.Logger DIAGNOSTICS = org.slf4j.LoggerFactory.getLogger(OpenAiRequestFactory.class);
     private final JsonMapper mapper = new JsonMapper();
     private final Object schema;
     private final String instructions;
@@ -20,6 +21,10 @@ public final class OpenAiRequestFactory {
             var raw = mapper.readValue(stream, Map.class);
             schema = supportedSchema(raw);
             instructions = new String(prompt.readAllBytes(), StandardCharsets.UTF_8);
+            // Hash exactly the retained instructions encoded as UTF-8, without normalization.
+            String hash = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(instructions.getBytes(StandardCharsets.UTF_8)));
+            DIAGNOSTICS.info("OpenAI prompt loaded version=triage-v1 sha256={}", hash);
         } catch (Exception e) { throw new IllegalStateException("Unable to load fixed OpenAI resources"); }
     }
     // OpenAI does not support conditional allOf. Only the transport schema is adapted;
